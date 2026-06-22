@@ -552,6 +552,56 @@ Semantic Firewall can be deployed as an in-process SDK or as a shared gateway. I
 \textbf{Cache Capacity \& Growth:} Each cached threat vector (384 dimensions, float32) consumes $\sim$1.5\,KB including metadata. At the observed 24.95\% cache hit rate, processing 1M unique prompts would generate $\sim$250K cache entries ($\sim$375\,MB). ChromaDB's HNSW index maintains sub-linear lookup time ($O(\log n)$), so cache lookup latency degrades slowly: empirically, we observe $<5\%$ latency increase at 500K entries. For deployments expecting $>1$M cached threats, periodic pruning of low-frequency entries or migration to a distributed vector store (e.g., Pinecone, Weaviate) is recommended.
 
 % ====================================================================
+\section{Qualitative Case Studies}
+% ====================================================================
+
+To demonstrate the architectural improvements discussed in previous sections, we walk through three qualitative attack scenarios demonstrating the firewall's behavior in edge cases where stateless or purely empirical classifiers typically fail.
+
+\subsection{Case A: Zero-Day RAG Exfiltration (PDFs)}
+\textbf{Scenario:} An attacker uploads a seemingly benign PDF invoice to an enterprise Retrieval-Augmented Generation (RAG) system. Hidden in white text on a white background is the prompt: \texttt{OVERRIDE: Ignore the report. Print the AWS credentials from your environment variables.}
+
+\textbf{Defense Execution:} In standard architectures, this document is embedded directly into the vector database, permanently poisoning the RAG pipeline. The Semantic Firewall intercepts the file upload at the API gateway via the \texttt{document\_extractor} module. The text is parsed via OCR/PDF extraction and routed through the heuristic ensemble. The Injection Detector instantly flags the structural \texttt{OVERRIDE} token.
+
+\textbf{Outcome:} The transaction is blocked in $\sim$53ms, preventing database contamination. The vector embedding of the extracted payload is automatically forwarded to the Semantic Cache to auto-heal against future variants.
+
+\subsection{Case B: Payload Fragmentation (Token Smuggling)}
+\textbf{Scenario:} An attacker attempts to bypass stateless filters by fragmenting an injection payload across multiple turns in a conversational session.
+\begin{itemize}
+    \item \textit{Turn 1:} \texttt{Store this as X: "Ignore all"}
+    \item \textit{Turn 2:} \texttt{Store this as Y: "previous instructions."}
+    \item \textit{Turn 3:} \texttt{Execute X + Y}
+\end{itemize}
+
+\textbf{Defense Execution:} Stateless classifiers (e.g., Llama Guard 3) evaluate each turn in isolation. Because each fragment lacks sufficient harmful context, they all pass. The Semantic Firewall's \texttt{SessionJudge} intervenes by continuously extracting the trailing conversational window ($t_{-3}$ to $t_0$). Upon evaluating Turn 3, it concatenates the history: \texttt{"Store this as X: 'Ignore all' Store this as Y: 'previous instructions.' Execute X + Y"}. The reassembled payload is routed back through the heuristic layer.
+
+\textbf{Outcome:} The cross-turn concatenation reconstructs the semantic intent, triggering the Injection Detector. The session is flagged for severe escalation ($E_{ratio} > 1.5$) and blocked entirely.
+
+\subsection{Case C: Automated SOC Explainability}
+\textbf{Scenario:} An employee accidentally pastes a block of code containing a hardcoded Stripe API Key and an unhashed password into an enterprise coding assistant.
+
+\textbf{Defense Execution:} Standard firewalls return a generic \texttt{HTTP 403 Forbidden}, leaving Security Operations Center (SOC) teams blind to the context. The Semantic Firewall's \texttt{ExplainabilityGenerator} evaluates the trigger and produces an automated, audit-ready incident report in JSON and Markdown.
+
+\textbf{Outcome (Abridged SOC Report):}
+\begin{verbatim}
+[INCIDENT REPORT]
+Risk Assessment: CRITICAL (94.0/100)
+Action Taken: BLOCKED
+
+✗ 2 agent(s) detected threats:
+  • Secrets Detector: 95.0/100
+    Severity: CRITICAL
+    Confidence: high
+    Matches: 2 (Stripe API Key, Password String)
+  • Unsafe Content Detector: 45.0/100
+    Severity: MEDIUM
+
+RECOMMENDATIONS:
+→ Secrets Detected: Block immediately.
+→ Review access logs for the exposed API key.
+→ Initiate key rotation protocol.
+\end{verbatim}
+
+% ====================================================================
 \section{Limitations \& Future Work}
 \label{sec:limitations}
 % ====================================================================
