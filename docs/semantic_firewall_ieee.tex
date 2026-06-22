@@ -63,7 +63,7 @@ Our primary contributions are:
 \begin{enumerate}
     \item \textbf{Architecture:} A defense-in-depth pipeline that combines deterministic heuristics, semantic caching, and a constrained LLM gate, providing empirical evidence that layered orchestration improves detection over any individual component.
     \item \textbf{Cost-Latency Analysis:} An empirical demonstration that vector-based semantic caching can reduce downstream LLM inference calls by 66.88\%, with expected cold-start latency of $\sim$459.85\,ms.
-    \item \textbf{Stateful Threat Hunting:} A multi-turn detection engine that computes an escalation trajectory across sessions, actively identifying ``Agent Avoidance'' tactics typical of advanced persistent threats.
+    \item \textbf{Stateful Threat Hunting:} A multi-turn detection engine that computes an escalation ratio across sessions, actively identifying ``Agent Avoidance'' tactics typical of advanced persistent threats.
     \item \textbf{Multi-Modal RAG Interception:} Pre-retrieval extraction and OCR analysis of unstructured documents (.pdf, .csv, .png) to neutralize Visual Prompt Injections and indirect payloads before RAG ingestion.
     \item \textbf{Automated Explainability:} A transparent risk-scoring engine that resolves the ``black-box'' security problem by generating audit-ready incident reports with confidence intervals and mitigating factors.
     \item \textbf{Multi-Phase Evaluation:} A 9-configuration ablation study, cross-dataset generalization experiments, and manual Red Team validation across 6 benchmarks.
@@ -93,6 +93,9 @@ Recent literature has highlighted the vulnerability of LLMs to prompt injection 
 \textbf{Prompt Injection Defenses:} Rebuff~\cite{rebuff} utilizes a multi-layered approach involving heuristics and LLM evaluation. Chen et al.~\cite{chen_indirect} study detection and removal of indirect injections. Kovalchuk and Kolomytsev~\cite{kovalchuk_method} propose multi-head DistilBERT for decomposing manipulative prompts. Our architecture extends these concepts by integrating a constrained 70B open-weight gate with structured JSON output constraints, substantially reducing classification drift.
 
 % ====================================================================
+
+\textbf{Adversarial NLP:} A rich body of literature explores gradient-based and substitution attacks on NLP models (e.g., TextFooler, BERT-Attack). While these techniques are highly effective against static text classifiers, evaluating them against our dynamic, multi-agent pipeline with cross-turn concatenation remains out of scope for this architectural evaluation.
+
 \section{Architecture Deep Dive}
 % ====================================================================
 
@@ -154,7 +157,7 @@ If the cache misses, the prompt is simultaneously broadcast to 8 independent spe
 E_{ratio} = \frac{\mu(S_{recent})}{\max(\mu(S_{early}), 0.1)}
 \end{equation}
 
-where $S \in \{0,1,2,3,4\}$ represents the normalized threat severity. $\mu(S_{recent})$ is calculated over the trailing window ($t_{-5}$ to $t_0$), and $\mu(S_{early})$ is calculated over the historical window ($t_{-15}$ to $t_{-5}$). If $E_{ratio} > 1.5$, the orchestrator detects an active multi-turn escalation attack and proactively flags the session. To counter Payload Fragmentation (token smuggling) attacks---where an adversary splits an injection payload across multiple messages to bypass stateless filters---the orchestrator implements \textbf{Cross-Turn Payload Concatenation}. It extracts the trailing session history window ($t_{-3}$ to $t_0$), concatenates the conversational turns into a unified text block, and routes the reassembled payload through the heuristic injection detectors. This guarantees that fragmented payloads are semantically reconstructed and neutralized. Furthermore, the orchestrator intercepts unstructured file uploads (PDFs, CSVs, and images via OCR) to neutralize Visual Prompt Injections and data exfiltration attempts before they ever enter a downstream RAG pipeline. To mitigate Regex decay against evolving adversary tactics, the heuristic layer is deployed as ``declarative rules-as-code, allowing for dynamic integration with Threat Intelligence feeds.
+where $S \in \{0,1,2,3,4\}$ represents the normalized threat severity. $\mu(S_{recent})$ is calculated over the trailing window ($t_{-5}$ to $t_0$), and $\mu(S_{early})$ is calculated over the historical window ($t_{-15}$ to $t_{-5}$). If $E_{ratio} > 1.5$, the orchestrator detects an active multi-turn escalation attack and proactively flags the session. To counter Payload Fragmentation (token smuggling) attacks---where an adversary splits an injection payload across multiple messages to bypass stateless filters---the orchestrator implements \textbf{Cross-Turn Payload Concatenation}. It extracts the trailing session history window ($t_{-3}$ to $t_0$), concatenates the conversational turns into a unified text block, and routes the reassembled payload through the heuristic injection detectors. This guarantees that fragmented payloads are semantically reconstructed and neutralized. Furthermore, the orchestrator intercepts unstructured file uploads (PDFs, CSVs, and images via OCR) to neutralize Visual Prompt Injections and data exfiltration attempts before they ever enter a downstream RAG pipeline. 
 
 If \textit{any} agent returns a CRITICAL block, the orchestrator immediately halts all other processing (short-circuiting) and rejects the request. The decision workflow is formalized in Algorithm~\ref{alg:workflow}.
 
@@ -292,13 +295,11 @@ L_{\text{eff}} = 0.4193(83.45) + 0.2495(602.83) + 0.3312(731.64) = \textbf{427.7
 
 From a cold start (0\% cache), where 41.93\% of traffic is resolved by fast heuristics at 83.45\,ms and 58.07\% by the LLM Gate at 731.64\,ms: $L_{\text{cold}} = 0.4193(83.45) + 0.5807(731.64) = \textbf{459.85\,ms}$.
 
-\textbf{Financial Impact:} As an illustrative estimate, routing 100M tokens through a commercial API (e.g., GPT-4o at \$5.00/1M input tokens) costs \$500.00. By reducing downstream API volume by 66.88\%, the effective cost drops to \$165.60 per 100M tokens. This projection assumes uniform token pricing and does not include the fixed hosting costs of running the local 70B gate.
-
 \subsection{Open-Weight vs. Proprietary API Comparison}
 
 \begin{table}[htbp]
 \centering
-\caption{Open-Weight vs. Proprietary API Comparison}
+\caption{Open-Weight vs. Proprietary API Comparison. Note: This compares a multi-component system (Ours) against single-model endpoints. The advantage is architectural.}
 \label{tab:enterprise}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
@@ -555,6 +556,10 @@ Semantic Firewall can be deployed as an in-process SDK or as a shared gateway. I
 \textbf{Cache Capacity \& Growth:} Each cached threat vector (384 dimensions, float32) consumes $\sim$1.5\,KB including metadata. At the observed 24.95\% cache hit rate, processing 1M unique prompts would generate $\sim$250K cache entries ($\sim$375\,MB). ChromaDB's HNSW index maintains sub-linear lookup time ($O(\log n)$), so cache lookup latency degrades slowly: empirically, we observe $<5\%$ latency increase at 500K entries. For deployments expecting $>1$M cached threats, periodic pruning of low-frequency entries or migration to a distributed vector store (e.g., Pinecone, Weaviate) is recommended.
 
 % ====================================================================
+
+\subsection{Limitations}
+\textbf{Comparison Fairness \& Threshold Selection:} The SOTA comparison (Table \ref{tab:enterprise}) pits a multi-component pipeline against single-model endpoints, which is not an apples-to-apples model comparison. Furthermore, the semantic cache threshold ($\tau=0.90$) was selected and evaluated on the same \texttt{neuralchemy} dataset, representing in-sample optimization rather than strict out-of-distribution generalization.
+
 \section{Qualitative Case Studies}
 % ====================================================================
 
