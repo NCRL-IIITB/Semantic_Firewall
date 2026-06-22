@@ -423,6 +423,8 @@ Phone Number & 8,807 & 74.8\% \\
 \end{tabular}
 \end{table}
 
+While Table~\ref{tab:pii_appendix} highlights the 8 highest-volume networking and financial entities evaluated against the benchmark, the Semantic Firewall's underlying PII engine is significantly more comprehensive. The production Regex agent actively scans for 36 distinct PII classes, including strict identity documents (SSN, Passports, Aadhaar), contextual medical attributes (Blood Group, Health IDs), and demographic markers (Gender, Religion, Caste) to ensure exhaustive data leakage prevention across diverse regulatory environments.
+
 \subsection{Multi-Turn Evasion Resilience}
 
 Attackers frequently use multi-turn context windows to slowly build a benign persona before launching an attack. We evaluated the firewall against the \texttt{walledai/Multi-Turn-Jailbreak} dataset (200 sessions, 2--10 turns each). The system blocked attacks in 180 of 200 sessions: \textbf{90.0\% Session Recall}.
