@@ -529,6 +529,8 @@ A critical barrier to enterprise adoption of LLM firewalls is their ``black-box'
 \subsection{Deployment Considerations}
 Semantic Firewall can be deployed as an in-process SDK or as a shared gateway. In-process deployment minimizes network latency but duplicates detector state. A centralized gateway simplifies policy management and threat-memory sharing but becomes a high-availability dependency.
 
+\textbf{Streaming Proxy Interception:} In production, LLMs frequently stream output tokens via Server-Sent Events (SSE). To mitigate the latency bottleneck of scanning streamed outputs, the Semantic Firewall includes an asynchronous \texttt{StreamingFirewallProxy}. This proxy buffers generated tokens into localized chunks (e.g., 150 characters) and executes the parallel heuristic layer continuously while the text is generating. If a threat is detected mid-generation, the proxy instantly terminates the stream, injecting a firewall intervention message. This ensures that unsafe content is intercepted with near-zero added latency.
+
 \textbf{Throughput:} This paper evaluates single-request latency only. No QPS (Queries Per Second) benchmarks are reported. At production scale, the Python GIL, synchronous ThreadPoolExecutor, and 70B LLM Gate VRAM requirements introduce concurrency limits that must be profiled under load before deployment.
 
 \textbf{Rate Limiting:} To prevent denial-of-wallet attacks---where an adversary generates novel paraphrases to force repeated LLM-gate calls---production deployments must implement IP-based rate limiting, user-level quotas, and auto-scaling GPU infrastructure.
