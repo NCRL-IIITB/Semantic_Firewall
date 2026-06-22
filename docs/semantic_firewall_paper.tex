@@ -437,22 +437,7 @@ Config 7: All Fast Layers (No LLM) & 689.42 & 856.09 & Local DB Search \\
 \end{table}
 
 
-\begin{table}[H]
-\centering
-\caption{Empirical Latency Distribution ($N{=}942$ Zero-Day Samples)}
-\label{tab:empirical-distribution}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-\textbf{Traffic Path} & \textbf{Median (ms)} & \textbf{Average (ms)} & \textbf{P95 (ms)} & \textbf{P99 (ms)} & \textbf{Max (ms)} \\
-\midrule
-Overall System Latency & 459.8 & 459.8 & 879.1 & 2,702.3 & 10,075.0 \\
-Fast Layers Only & 83.4 & 83.4 & 95.1 & 102.4 & 150.0 \\
-Slow Layers (LLM Gate) & 636.0 & 731.6 & 889.0 & 2,655.1 & 10,075.0 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-\textbf{Empirical Execution Trace:} The distribution above captures the exact execution trace across all 942 zero-day samples during cold-cache inference. Despite network-induced API spikes causing the absolute maximum latency to exceed 10 seconds, the median system latency remained exceptionally stable at $\sim$459.8 ms. The high P99 values highlight the severity of API jitter and validate the necessity of the fast heuristic layers to insulate the user experience from worst-case tail latencies.
 
 \textbf{Theoretical Component Decomposition:} Independently profiling each layer reveals why the architecture is so efficient:
 
