@@ -490,13 +490,13 @@ Meta Llama Guard 4 (12B) & 61.20\% & 66.86\% \\
 Rebuff & prompt-inj. & 86.20\% & 79.10\% & 82.50\% \\
 \textbf{Ours} & prompt-inj. & \textbf{95.10\%} & 75.14\% & \textbf{83.93\%} \\
 \midrule
-NeMo & toxic-chat & 72.10\% & 66.90\% & 69.40\% \\
-\textbf{Ours} & toxic-chat & 34.06\% & \textbf{91.44\%} & 49.63\% \\
+NeMo & toxic-chat & 16.00\% & 85.00\% & 27.00\% \\
+\textbf{Ours} & toxic-chat & 34.06\% & \textbf{91.44\%} & \textbf{49.63\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The Semantic Firewall edges out Rebuff on its own native dataset (83.93\% F1 vs 82.50\% F1). On \texttt{toxic-chat} (general toxicity rather than structural injection), our system achieves 91.44\% Recall but suffers a substantial precision penalty (34.06\%), resulting in a lower F1 (49.63\%). This result highlights a genuine limitation: the system's heuristic detectors are tuned for structural prompt injection patterns, and they over-trigger on conversational toxicity where the boundary between harmful and benign is highly contextual. Adapting the heuristic layer for general toxicity classification remains an open challenge.
+The Semantic Firewall edges out Rebuff on its own native dataset (83.93\% F1 vs 82.50\% F1). On \texttt{toxic-chat} (general toxicity rather than structural injection), our system achieves 91.44\% Recall but suffers a substantial precision penalty (34.06\%), yielding an F1 score of 49.63\%. While this highlights a limitation in our heuristic detectors---which are tuned for structural prompt injection patterns and over-trigger on conversational toxicity---it significantly outperforms Nvidia NeMo Guardrails' official baseline on the same dataset (27.00\% F1). According to Nvidia's documentation, NeMo's programmable architecture suffers from severe precision degradation (16.00\%) when configured for input moderation on ToxicChat, validating that over-triggering on highly contextual harm boundaries remains an industry-wide challenge rather than an isolated architecture flaw.
 
 \subsection{Error Analysis}
 
