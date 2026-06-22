@@ -324,7 +324,6 @@ python semantic_firewall/benchmarks/pii_benchmark.py
 # Unsafe content benchmark (uses Groq API)
 python semantic_firewall/benchmarks/unsafe_benchmark.py
 
-# Red Team adversarial attack generation
 python semantic_firewall/benchmarks/red_team_hacker.py
 
 # Full leaderboard generation

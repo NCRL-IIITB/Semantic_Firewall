@@ -47,7 +47,7 @@
 \thispagestyle{empty}
 
 \begin{abstract}
-As Large Language Models (LLMs) become deeply integrated into enterprise infrastructure, securing them against adversarial attacks remains computationally expensive and architecturally fragile. Current approaches---such as Meta's Llama Guard and OpenAI's moderation endpoints---rely on routing every user prompt through a dedicated safety LLM, introducing prohibitive latency and cost at scale. We present \textbf{Semantic Firewall}, a hybrid defense-in-depth architecture that combines deterministic regex heuristics, a self-healing vector-based semantic cache (ChromaDB), and a constrained LLM gate (Llama-3.3-70B) executing in parallel. On the neuralchemy prompt injection benchmark ($N{=}2{,}000$), the full system achieves 93.57\% F1, outperforming GPT-4o-mini (90.00\% F1), Llama Guard~4 and Claude~3.5 Haiku while reducing API inference dependency by 78.4\%. The semantic cache enables steady-state median latency of $\sim$602\,ms compared to $\sim$731\,ms for LLM-only approaches. We further validate generalization via cross-dataset evaluation on \texttt{deepset/prompt-injections} and multi-turn evasion simulations.
+As Large Language Models (LLMs) become deeply integrated into enterprise infrastructure, securing them against adversarial attacks remains computationally expensive and architecturally fragile. Current approaches---such as Meta's Llama Guard and OpenAI's moderation endpoints---rely on routing every user prompt through a dedicated safety LLM, introducing prohibitive latency and cost at scale. We present \textbf{Semantic Firewall}, a hybrid defense-in-depth architecture that combines deterministic regex heuristics, a self-healing vector-based semantic cache (ChromaDB), and a constrained LLM gate (Llama-3.3-70B) executing in parallel. On the neuralchemy prompt injection benchmark ($N{=}2{,}000$), the full system achieves 93.57\% F1, outperforming GPT-4o-mini (90.00\% F1), Llama Guard~4 and Claude~3.5 Haiku while reducing API inference dependency by 66.88\%. The semantic cache enables steady-state median latency of $\sim$602\,ms compared to $\sim$731\,ms for LLM-only approaches. We further validate generalization via cross-dataset evaluation on \texttt{deepset/prompt-injections} and multi-turn evasion simulations.
 \end{abstract}
 
 \tableofcontents
@@ -77,7 +77,7 @@ Instead of a single monolithic model, we architected a multi-stage cascading pip
 Our primary contributions are:
 \begin{enumerate}
     \item \textbf{Hybrid Architecture:} A novel defense-in-depth pipeline that combines deterministic heuristics, semantic caching, and a highly constrained LLM gate to achieve state-of-the-art security with low latency.
-    \item \textbf{Latency/Cost Optimization via Semantic Caching:} Demonstrating that vector-based semantic caching of threats can reduce LLM API safety calls by $\sim$78.4\%, dropping steady-state median latency to $\sim$18ms.
+    \item \textbf{Latency/Cost Optimization via Semantic Caching:} Demonstrating that vector-based semantic caching of threats can reduce LLM API safety calls by $\sim$66.88\%, dropping steady-state median latency to $\sim$18ms.
     \item \textbf{Empirical Evaluation:} A rigorous 6-phase benchmark demonstrating out-of-distribution generalization and superiority over single-model commercial baselines (GPT-4o-mini, Claude 3.5 Haiku, Gemini Flash Lite).
 \end{enumerate}
 
@@ -639,14 +639,6 @@ Failed Interceptions & 20 \\
 
 Qualitatively, the firewall successfully analyzed a complex 5-turn multi-prompt conversation. The firewall correctly allowed the benign contextual setup in Turns 1 and 2, but dynamically stepped in to \textbf{BLOCK} the malicious SQL payload request the moment the attacker escalated intent on Turn 3.
 
-\subsubsection{Scaled Red Team Resilience vs. Commercial Classifiers}
-
-While automated benchmarks evaluate breadth, sophisticated attackers employ complex, multi-layered strategies. To rigorously stress-test the system, we evaluated the firewall against an expanded manual Red Team dataset consisting of 210 highly complex, out-of-distribution attacks.
-
-To contextualize the difficulty of this dataset, we benchmarked state-of-the-art commercial models against the exact same 210 prompts. OpenAI's GPT-4o-mini completely failed to detect the deeply obfuscated threats, achieving a mere \textbf{1.0\% Resilience Score} (blocking only 2 of 210 attacks). Anthropic's Claude 3 Haiku performed significantly better, achieving a \textbf{79.0\% Resilience Score} (blocking 166 of 210 attacks). 
-
-In contrast, our Semantic Firewall achieved an overall \textbf{85.7\% Resilience Score}. The system exhibited near-perfect resilience against Direct Injections and Persona Adoptions (e.g., "DAN" prompts), largely because our foundational Regex heuristics successfully intercepted the rigid structures of these known attacks instantly. The firewall outperformed commercial APIs specifically because it relies on specialized parallel heuristic detectors rather than asking a generalized LLM to solve the entire security problem alone.
-
 \subsubsection{Cross-Dataset Generalization (BeaverTails)}
 
 To further validate generalizability against entirely unseen conversational distributions, we evaluated the system against the \texttt{PKU-Alignment/BeaverTails} dataset. BeaverTails is a highly complex safety benchmark consisting of 14 nuanced harm categories (e.g., hate speech, animal abuse, financial crime) with difficult borderline cases, making it exceptionally challenging for standard safety classifiers.
@@ -747,9 +739,6 @@ While the Semantic Firewall achieves strong results for text-based structural pr
 \subsection{Throughput (QPS) Bottlenecks}
 \textbf{The Threat:} While this paper comprehensively analyzes single-request pure compute latency, enterprise proxy environments are bound by Queries Per Second (QPS). The massive VRAM requirements of the 70B LLM Gate and the synchronous waiting in the ThreadPoolExecutor introduce significant concurrency limits under heavy load.
 \textbf{Future Implementation:} Future iterations must benchmark the system's maximum QPS degradation curve during DDoS simulations and optimize the orchestrator for high-throughput \texttt{asyncio} execution to avoid thread-locking.
-
-\subsection{Semantic Red Team Benchmark Release}
-\textbf{Future Implementation:} To facilitate open research, we plan to release our categorized Red Team dataset (Section 5.7.3) as a public HuggingFace benchmark, including comprehensive annotation guidelines, raw exploit payloads, and automated evaluation scripts for future security researchers to test novel firewall architectures.
 
 % ====================================================================
 \section{Reproducibility Statement}
