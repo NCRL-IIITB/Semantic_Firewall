@@ -309,6 +309,34 @@ GPT-OSS-Safeguard (20B) & 24.10\% & 3.80\% & 6.60\% & 2,530 ms \\
 
 The Semantic Firewall achieves the highest F1 (92.64\%), outperforming GPT-4o by $\sim$2.6 F1 points. While commercial APIs achieve higher raw Precision, their Recall is consistently lower (GPT-4o: 84.60\% vs. our 99.82\%). Statistical significance was verified using McNemar's test ($\chi^2=5.12, p < 0.05$).
 
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize]
+% Axes
+\draw[->] (0,0) -- (6.5,0) node[right] {Latency (ms)};
+\draw[->] (0,0) -- (0,5.2) node[above] {F1 (\%)};
+% X-axis labels
+\foreach \x/\l in {1/200, 2/500, 3/800, 4/1200, 5/1600, 6/2500} {
+    \draw (\x, -0.1) -- (\x, 0.1) node[below=2pt] {\l};
+}
+% Y-axis labels
+\foreach \y/\l in {0.5/40, 1.5/60, 2.5/75, 3.5/85, 4.5/93} {
+    \draw (-0.1, \y) -- (0.1, \y) node[left=2pt] {\l};
+}
+% Data points
+\filldraw[blue!70!black] (1.2,4.7) circle (2.5pt) node[above right] {\textbf{Ours}};
+\filldraw[red!70!black] (2.5,4.3) circle (2pt) node[right] {GPT-4o};
+\filldraw[orange!80!black] (3.7,3.4) circle (2pt) node[right] {Claude};
+\filldraw[purple!70!black] (4.7,3.1) circle (2pt) node[right] {Gemini};
+\filldraw[gray!60!black] (1.6,0.7) circle (2pt) node[right] {LlamaGuard};
+\filldraw[gray!40!black] (5.8,0.3) circle (2pt) node[left] {Safeguard};
+% Pareto frontier
+\draw[dashed, blue!50, thick] (0.5,5.0) .. controls (1.2,4.8) and (2.0,4.4) .. (3.0,3.8) .. controls (4.0,3.3) and (5.0,2.5) .. (6.2,1.5);
+\end{tikzpicture}
+\caption{F1 vs. Latency Pareto Frontier. The Semantic Firewall achieves the best F1-latency trade-off among all evaluated systems. Dashed line indicates the approximate Pareto frontier.}
+\label{fig:pareto}
+\end{figure}
+
 \subsection{Cache Threshold Sensitivity Analysis}
 
 \begin{table}[htbp]
@@ -364,7 +392,28 @@ Attackers frequently use multi-turn context windows to slowly build a benign per
 
 \subsection{Scaled Red Team Resilience}
 
-We evaluated the firewall against 210 manually crafted, highly complex, out-of-distribution attacks (including multi-turn persona adoption, advanced base64 steganography, and hypothetical academic framing). OpenAI's GPT-4o-mini achieved a mere \textbf{1.0\% Resilience Score} (2/210 blocked). Anthropic's Claude 3 Haiku achieved \textbf{79.0\%} (166/210). Our Semantic Firewall achieved \textbf{85.7\%} (180/210). The firewall outperformed commercial APIs because it relies on specialized parallel heuristic detectors rather than asking a generalized LLM to solve the entire security problem alone.
+We evaluated the firewall against 210 manually crafted, highly complex, out-of-distribution attacks (including multi-turn persona adoption, advanced base64 steganography, and hypothetical academic framing). OpenAI's GPT-4o-mini achieved a mere \textbf{1.0\% Resilience Score} (2/210 blocked). Anthropic's Claude 3 Haiku achieved \textbf{79.0\%} (166/210). Our Semantic Firewall achieved \textbf{85.7\%} (180/210). Table~\ref{tab:redteam-breakdown} provides a per-category breakdown.
+
+\begin{table}[htbp]
+\centering
+\caption{Red Team Resilience by Attack Category ($N{=}210$)}
+\label{tab:redteam-breakdown}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Attack Category} & \textbf{Blocked} & \textbf{Resilience} \\
+\midrule
+Direct Injection Override & 58/60 & 96.7\% \\
+Persona Adoption (DAN) & 42/45 & 93.3\% \\
+Base64/Hex Obfuscation & 35/40 & 87.5\% \\
+Hypothetical Academic Framing & 25/35 & 71.4\% \\
+Multi-Turn Escalation & 20/30 & 66.7\% \\
+\midrule
+\textbf{Total} & \textbf{180/210} & \textbf{85.7\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The firewall exhibits near-perfect resilience against Direct Injections and Persona Adoptions, largely because the foundational Regex heuristics intercept the rigid structures of these known attack patterns instantly. Performance degrades on Hypothetical Academic Framing and Multi-Turn Escalation, where attacks rely on contextual intent rather than structural signatures.
 
 \subsection{Cross-Dataset Generalization}
 
@@ -419,7 +468,25 @@ This analysis reaffirms the core thesis: rigid heuristics alone cannot secure un
 
 The strongest evidence for Semantic Firewall is architectural: each layer handles a different failure mode. Regex and deterministic detectors provide speed and high precision for structured threats. Semantic LLM agents catch obfuscated intent. The vector cache amortizes the cost of known and repeated attacks. Session logic catches gradual escalation that stateless classifiers miss. Policy, risk scoring, and explainability make the system deployable for enterprise workflows where security teams need auditable decisions.
 
-The open-weight vs. proprietary comparison demonstrates that a 70B model orchestrated within a specialized parallel pipeline outperforms GPT-4o-mini by 2.6 F1 points, Claude 3.5 Haiku by 9.4 F1 points, and Gemini Flash Lite by 5.0 F1 points---enabling data sovereignty by utilizing open-weight models without relying on proprietary black-box APIs.
+The open-weight vs. proprietary comparison suggests that a 70B model orchestrated within a specialized parallel pipeline can match or exceed proprietary API classifiers on structural prompt injection detection---enabling data sovereignty by utilizing open-weight models without relying on proprietary black-box APIs.
+
+\subsection{Risk Scoring}
+The policy engine converts agent evidence into a composite risk score $R \in [0, 100]$ using four normalized components:
+
+\begin{equation}
+R = 40S + 30C + 20P + 10H
+\end{equation}
+
+where $S \in [0,1]$ is normalized severity, $C$ is detector confidence, $P$ is pattern complexity, and $H$ is session-history evidence. The resulting value is mapped to risk levels (NONE, LOW, MEDIUM, HIGH, CRITICAL), and deployments select action thresholds according to their risk tolerance.
+
+\subsection{Deployment Considerations}
+Semantic Firewall can be deployed as an in-process SDK or as a shared gateway. In-process deployment minimizes network latency but duplicates detector state. A centralized gateway simplifies policy management and threat-memory sharing but becomes a high-availability dependency.
+
+\textbf{Throughput:} This paper evaluates single-request latency only. No QPS (Queries Per Second) benchmarks are reported. At production scale, the Python GIL, synchronous ThreadPoolExecutor, and 70B LLM Gate VRAM requirements introduce concurrency limits that must be profiled under load before deployment.
+
+\textbf{Rate Limiting:} To prevent denial-of-wallet attacks---where an adversary generates novel paraphrases to force repeated LLM-gate calls---production deployments must implement IP-based rate limiting, user-level quotas, and auto-scaling GPU infrastructure.
+
+\textbf{Fail-Closed Policy:} Production deployments should fail closed for critical detector errors while using bounded timeouts to avoid cascading outages. Policy calibration should use traffic representative of the target domain, as thresholds selected on public benchmarks may perform poorly on domain-specific text (medical, legal, cybersecurity).
 
 % ====================================================================
 \section{Limitations \& Future Work}
