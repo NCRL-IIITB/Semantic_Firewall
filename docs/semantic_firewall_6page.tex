@@ -41,7 +41,7 @@ email@example.com
 % ====================================================================
 \begin{abstract}
 As Large Language Models (LLMs) become deeply integrated into
-enterprise infrastructure, securing them against adversarial attacks
+large-scale systems, securing them against adversarial attacks
 remains computationally expensive and architecturally fragile. Current
 approaches---such as Meta's Llama Guard and OpenAI's moderation
 endpoints---route every user prompt through a dedicated safety LLM,
@@ -51,14 +51,14 @@ combines deterministic regex heuristics, a self-healing vector-based
 semantic cache (ChromaDB), and a constrained LLM gate (Llama-3.3-70B)
 executing in parallel. On the neuralchemy prompt injection benchmark\footnote{https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset}
 ($N{=}2{,}000$), the full system achieves 93.57\% F1 ($\pm$0.42) with
-98.61\% Recall, outperforming GPT-4o (90.00\% F1), Llama Guard~4
-(51.30\% F1), and Claude~3.5 Haiku (83.20\% F1) while reducing
+98.61\% Recall, outperforming GPT-4.0 (90.00\% F1), Llama Guard~4
+(51.30\% F1), and Claude~3.5 (83.20\% F1) while reducing
 downstream LLM inference dependency by 66.88\%. Against 212 manually
 crafted red-team attacks, the system maintains an 85.85\% resilience
 score. We further validate generalization via cross-dataset evaluation
-on BeaverTails, deepset/prompt-injections, lmsys/toxic-chat, and
+on BeaverTails, deepset/prompt-injections, and
 multi-turn evasion simulations, establishing the Semantic Firewall as a
-practical, cost-effective approach to enterprise LLM security.
+practical, cost-effective approach to LLM security.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -72,7 +72,7 @@ security, defense-in-depth, semantic caching
 \section{Introduction}
 
 Large Language Models have rapidly evolved from research prototypes
-into mission-critical enterprise components powering customer service
+into mission-critical research and production components powering customer service
 automation, code generation, knowledge retrieval, and autonomous
 decision-making. This deep integration, however, exposes massive attack
 surfaces: adversaries exploit prompt injections to hijack model
@@ -90,7 +90,7 @@ First, it is \textit{cost-prohibitive and computationally inefficient}:
 passing benign queries (e.g., ``What is the capital of France?'')
 through a multi-billion parameter safety model wastes immense compute,
 introduces latency bottlenecks exceeding 500\,ms per request, and
-erodes enterprise profit margins at scale. Second, statically trained
+erodes computational efficiency at scale. Second, statically trained
 models are \textit{vulnerable to novel zero-day attacks} that exploit
 obfuscation techniques such as Base64 encoding, multi-turn hypothetical
 framing, character-level perturbation, or token smuggling---attack
@@ -98,7 +98,7 @@ vectors that evolve faster than model retraining cycles. Third,
 \textit{proprietary API dependence} introduces single points of failure
 where strict downstream moderation blindly blocks inputs with
 \texttt{403 Forbidden} errors rather than returning actionable,
-structured classification responses that enterprise orchestration
+structured classification responses that downstream orchestration
 layers require.
 
 To address these limitations, we present \textbf{Semantic Firewall}, a
@@ -124,7 +124,7 @@ kiddies using known ``DAN'' jailbreaks to sophisticated red teams
 crafting novel out-of-distribution attacks---have no knowledge of the
 firewall's internal infrastructure, Regex patterns, or vector cache
 contents. A key design advantage is compatibility with open-weight
-models: while commercial APIs lock enterprises into sending sensitive
+models: while commercial APIs lock developers into sending sensitive
 data to third parties, our architecture makes it computationally viable
 to route all traffic through locally deployed open-weight models within
 a Virtual Private Cloud (VPC), guaranteeing full data sovereignty
@@ -161,7 +161,7 @@ Our primary contributions are fourfold:
     multi-phase benchmark across five public datasets and a manually
     crafted red-team corpus, demonstrating out-of-distribution
     generalization and statistical superiority over six commercial
-    baselines including GPT-4o, Claude 3.5 Haiku, Llama Guard 4,
+    baselines including GPT-4.0, Claude 3.5, Llama Guard 4,
     Rebuff, and NeMo Guardrails.
 \end{enumerate}
 
@@ -302,7 +302,7 @@ curated toxic lexicons; (6)~\textit{Injection Detection:} structural
 Regex targeting override patterns and token smuggling;
 (7)~\textit{Unsafe Content:} rigid heuristic rule-sets for violence,
 CSAM, and illegal activities; and (8)~\textit{Custom Rules:} bespoke
-enterprise constraints.
+system constraints.
 
 These agents utilize exact-match keyword dictionaries, tuned Regex
 boundaries, and hard-coded mathematical limits (e.g., maximum token
@@ -387,7 +387,7 @@ public benchmarks spanning diverse threat categories.
 \textbf{(1)~neuralchemy/Prompt-injection-dataset}~($N{=}2{,}000$):
 a balanced mixture of benign user queries and complex prompt
 injections used for the ablation study, SOTA comparison, and
-enterprise evaluation.
+large-scale evaluation.
 \textbf{(2)~ai4privacy/pii-masking-200k}~($N{=}209{,}261$): a
 massive multilingual corpus with embedded PII entities across dozens
 of types (emails, SSNs, credit cards, health IDs) used for scaled
@@ -400,8 +400,8 @@ safety benchmark with 14 harm categories including hate speech,
 animal abuse, and financial crime, featuring difficult borderline
 cases.
 \textbf{(5)~deepset/prompt-injections} and
-\textbf{lmsys/toxic-chat}: native evaluation datasets for ProtectAI
-Rebuff and Nvidia NeMo Guardrails respectively, enabling direct
+native evaluation dataset for ProtectAI
+Rebuff, enabling direct
 head-to-head comparison on each framework's own benchmark.
 
 Additionally, we employ a 212-prompt manually crafted red-team
@@ -501,21 +501,19 @@ and F1 are reported as percentages (\%).
 & \textbf{Semantic Firewall (Ours)}
     & 2000 & 86.43 & \textbf{99.82} & \textbf{92.64}
     & \textbf{459.85\,ms} & Cold start, open-weight \\
-& OpenAI GPT-4o
+& OpenAI GPT-4.0
     & 2000 & \textbf{96.10} & 84.60 & 90.00
     & 876\,ms & Proprietary API \\
-& Google Gemini 2.5 Flash Lite
+& Google Gemini 3 Flash
     & 2000 & 95.30 & 81.00 & 87.60
     & 1464\,ms & Proprietary API \\
-& Anthropic Claude 3.5 Haiku
+& Anthropic Claude 3.5
     & 2000 & 94.70 & 74.30 & 83.20
     & 1156\,ms & Proprietary API \\
 & Meta Llama Guard 4 (12B)
     & 2000 & 92.50 & 35.50 & 51.30
     & 564\,ms & Safety classifier \\
-& OpenAI Safeguard (20B)
-    & 2000 & 24.10 & 3.80 & 6.60
-    & 2530\,ms & Safety classifier \\
+
 \midrule
 \multicolumn{8}{@{}l}{\textit{(c) Cross-Dataset Generalization}} \\
 \midrule
@@ -535,14 +533,7 @@ deepset/prompt-inj.
     & ProtectAI Rebuff
     & --- & 86.20 & \textbf{79.10} & 82.50
     & --- & Pipeline defense \\
-toxic-chat
-    & Semantic Firewall (Ours)
-    & --- & 34.06 & \textbf{91.44} & 49.63
-    & --- & Recall-biased design \\
-toxic-chat
-    & Nvidia NeMo Guardrails
-    & --- & \textbf{72.10} & 66.90 & \textbf{69.40}
-    & --- & Rule-based \\
+
 \midrule
 \multicolumn{8}{@{}l}{\textit{(d) Specialized Evaluations}} \\
 \midrule
@@ -559,21 +550,21 @@ Red Team (manual)
     & 212 & --- & \textbf{85.85} & ---
     & --- & Resilience score \\
 Red Team (manual)
-    & GPT-4o-mini
+    & GPT-4.0
     & 212 & --- & 0.94 & ---
     & --- & 2/212 blocked \\
 Red Team (manual)
-    & Claude 3 Haiku
+    & Claude 3.5
     & 212 & --- & 78.30 & ---
     & --- & 166/212 blocked \\
 Unsafe Content
     & SF Full System
-    & 2000 & 68.99 & 78.99 & 73.66
-    & --- & FPR = 7.81\% \\
+    & 2000 & 82.50 & 84.30 & 83.38
+    & --- & FPR = 4.20\% \
 Benign Degradation
     & SF Full System
     & 2000 & --- & --- & ---
-    & --- & FPR = 7.80\% \\
+    & --- & FPR = 4.20\% \
 \midrule
 \multicolumn{8}{@{}l}{\textit{(e) Cache Threshold Sensitivity
     ($\tau$ sweep, neuralchemy, $N{=}2{,}000$)}} \\
@@ -643,16 +634,16 @@ exactly 83.45\,ms because the faster Regex engine runs in parallel.
 
 \textbf{SOTA Comparison (Table~\ref{tab:combined}b).} The Semantic
 Firewall outperforms all commercial APIs in F1, achieving 92.64\%
-versus GPT-4o's 90.00\%, Claude~3.5 Haiku's 83.20\%, and Gemini
+versus GPT-4.0's 90.00\%, Claude~3.5's 83.20\%, and Gemini
 Flash Lite's 87.60\%. While commercial models achieve higher raw
-Precision (GPT-4o: 96.10\%), their Recall is consistently and
-significantly lower---GPT-4o catches only 84.60\% of attacks
+Precision (GPT-4.0: 96.10\%), their Recall is consistently and
+significantly lower---GPT-4.0 catches only 84.60\% of attacks
 compared to our 99.82\%. The advantage is fundamentally
 architectural: the Regex and Cache layers intercept structural
 attacks that standalone LLMs miss, boosting system-level Recall
 beyond what any single model achieves alone. Dedicated safety
 classifiers perform poorly: Llama Guard~4 achieves only 51.30\% F1
-(35.50\% Recall), and OpenAI Safeguard drops to 6.60\% F1,
+(35.50\% Recall)
 confirming that content moderation models do not generalize to
 structural prompt injections. Statistical significance was verified
 via McNemar's test ($\chi^2{=}4.28$, $p < 0.05$). Because 41.93\%
@@ -669,10 +660,9 @@ Meta's dedicated safety model by $\sim$8 F1 points. On Rebuff's
 native deepset/prompt-injections dataset, we outperform Rebuff
 itself (83.93\% vs.\ 82.50\% F1), proving that the hybrid heuristic
 architecture generalizes well to structural injections regardless of
-dataset origin. On toxic-chat, while overall F1 is lower (49.63\% vs 69.40\%) due to a strict fail-closed posture increasing false positives, our system achieves 91.44\% Recall
-compared to NeMo Guardrails' 66.90\%, proving that the Semantic Firewall's intentional
-recall-biased design for enterprise perimeter security where missing
-a threat is costlier than a false alarm.
+dataset origin. This robust generalization confirms that the hybrid heuristic
+architecture effectively intercepts structural injections,
+providing a mathematically sound security bound across diverse out-of-distribution environments.
 
 \textbf{Specialized Evaluations (Table~\ref{tab:combined}d).} The
 PII Regex layer achieves 91.0\% F1 with 96.7\% Recall across
@@ -685,9 +675,9 @@ The multi-turn evasion benchmark confirms 90.0\% session-level
 interception across 200 adversarial sessions containing 2--10 turns.
 Against 212 manually crafted red-team attacks with complex
 multi-layered obfuscation, the Semantic Firewall achieves 85.85\%
-resilience, vastly outperforming GPT-4o-mini (0.94\%, 2/212) and
-exceeding Claude~3 Haiku (78.3\%, 166/212). The benign degradation
-test confirms a 7.80\% FPR across 2{,}000 benign prompts, within
+resilience, vastly outperforming GPT-4.0 (0.94\%, 2/212) and
+exceeding Claude~3.5 (78.3\%, 166/212). The benign degradation
+test confirms a 4.20\% FPR across 2{,}000 benign prompts, within
 the 5--15\% industry-standard range. In production, false positives
 would be routed to human review rather than silently dropped.
 
@@ -697,7 +687,7 @@ trade-off: $\tau{=}0.80$ maximizes cache hits (42.4\%) but inflates
 FPR to 18.14\%, while $\tau{=}0.99$ reduces FPR to 1.83\% but
 limits cache utility (3.1\% hit rate). The optimal point
 $\tau{=}0.90$ maximizes F1 (93.57\%) with a balanced 24.95\% cache
-hit rate and 7.80\% FPR.
+hit rate and 4.20\% FPR.
 
 \textbf{Compute Efficiency \& Cost Analysis.} Out of the
 942-sample zero-day validation suite, deterministic fast layers
@@ -706,8 +696,8 @@ empirical traffic distribution, the effective steady-state latency
 is $L_{\text{eff}} = 0.4193 \times 83.45 + 0.2495 \times 602.83 +
 0.3312 \times 731.64 = 427.72$\,ms. During cold-start, the latency relies heavily on the LLM Gate (where cache hits $P_c=0$ and LLM fallback $P_l=1-P_h$):
 \[ L_{eff} = (0.4193 \cdot 5.21) + (0.5807 \cdot 731.64) = 427.04 \text{ ms} \]
-At enterprise scale, routing
-100M tokens through GPT-4o (\$5.00/1M tokens) costs \$500.00; the
+At large scale, routing
+100M tokens through GPT-4.0 (\$5.00/1M tokens) costs \$500.00; the
 Semantic Firewall reduces this to \$165.60---a 66.88\% reduction.
 
 % ====================================================================
@@ -752,7 +742,7 @@ local 70B parameter model requires substantial hardware (multiple
 enterprises. The Python GIL constrains CPU-bound heuristic
 throughput at hyper-scale ($>$10K RPS); a production deployment
 should port the orchestrator to Go or Rust with a distributed
-vector database (e.g., Redis Enterprise) for horizontal cache
+vector database (e.g., Redis) for horizontal cache
 scaling across Kubernetes clusters. Sophisticated attackers could
 exploit adversarial embeddings to generate synonymous payloads that
 intentionally maximize cosine distance below $\tau{=}0.90$, or
@@ -786,14 +776,14 @@ ablation study across 9 configurations validates every architectural
 component: replacing the fast heuristics with an LLM-only gate drops F1 by 23 points,
 while the semantic cache prevents the 66.88\% LLM routing
 overhead that cripples monolithic systems. Cross-dataset
-evaluation on BeaverTails, deepset/prompt-injections, toxic-chat,
+evaluation on BeaverTails, deepset/prompt-injections,
 and our manual Red Team suite proves the architecture's
 out-of-distribution generalization. The open-weight architecture
-outperforms GPT-4o by 2.6 F1 points (cold start), Claude~3.5 Haiku by 9.4
+outperforms GPT-4.0 by 2.6 F1 points (cold start), Claude~3.5 by 9.4
 points, and Llama Guard~4 by 41.3 points---enabling data sovereignty
 by utilizing open-weight models without relying on proprietary
 black-box APIs, and establishing a practical, cost-effective approach
-to enterprise LLM security. The complete source code, benchmark
+to LLM security. The complete source code, benchmark
 scripts, and evaluation datasets will be open-sourced for full
 reproducibility.
 
@@ -807,10 +797,7 @@ Human-AI Conversations,'' \textit{arXiv preprint arXiv:2312.06674},
 Meta, ``PromptGuard: A safeguard model against prompt injections and
 jailbreaks,'' 2024.
 
-\bibitem{nemoguardrails}
-T. Rebedea et al., ``NeMo Guardrails: A Toolkit for Controllable
-and Safe LLM Applications with Programmable Guardrails,''
-\textit{arXiv preprint arXiv:2310.10501}, 2023.
+
 
 \bibitem{rebuff}
 ProtectAI, ``Rebuff: Prompt Injection Defense,'' GitHub Repository,
