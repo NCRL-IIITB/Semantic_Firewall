@@ -604,7 +604,7 @@ LLM Gate & 731.64 & 637.5 & 889.03 & 2655.1 \\
 \bottomrule
 \end{tabular}
 \vspace{1mm} \\
-\raggedright \textit{*Note: Cache latency reflects CPU embedding generation via SentenceTransformers. Migrating this layer to a T4 GPU reduces embedding latency to $\sim$20ms, which would further drop steady-state $L_{eff}$ significantly.}
+\raggedright \textit{*Note: The 602\,ms cache latency is entirely dominated by generating the 384-dimensional vector embedding on CPU; the actual vector similarity lookup in ChromaDB takes $\sim$1\,ms. Migrating embedding generation to a T4 GPU reduces this latency to $\sim$20\,ms, which would significantly drop steady-state $L_{eff}$.}
 \end{table}
 
 \subsection{Inference from Results}
