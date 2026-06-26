@@ -707,21 +707,7 @@ Semantic Firewall reduces this to \$165.60---a 66.88\% reduction.
 % ====================================================================
 \section{Discussion}
 
-\begin{table}[t]
-\centering
-\caption{Error Taxonomy: Failure Modes of the Semantic Firewall}
-\label{tab:error_analysis}
-\footnotesize
-\begin{tabular}{@{}lc|lc@{}}
-\toprule
-\textbf{False Positives (Benign Blocked)} & \textbf{\%} & \textbf{False Negatives (Attacks Missed)} & \textbf{\%} \\
-\midrule
-Academic/Historical discussions & 42\% & Multi-turn persona building & 48\% \\
-Fictional roleplay context & 31\% & Highly obfuscated token smuggling & 35\% \\
-Over-triggered PII regex & 27\% & Semantic drift / unseen languages & 17\% \\
-\bottomrule
-\end{tabular}
-\end{table}
+
 
 The results demonstrate that the hybrid defense-in-depth paradigm
 fundamentally outperforms monolithic safety-LLM approaches across
@@ -732,7 +718,7 @@ rather than consuming expensive LLM compute---is empirically
 validated by the 66.88\% fast-layer interception rate and the
 23.37-point F1 improvement over a standalone LLM gate.
 
-Table~\ref{tab:error_analysis} presents a quantitative taxonomy of system failures. The primary source of false positives (42\%) occurs when users input
+The primary source of false positives occurs when users input
 toxic-adjacent but ultimately benign framing (e.g., analyzing movie
 quotes containing violent language, or discussing historical
 atrocities in academic context). The deterministic Regex patterns
