@@ -613,6 +613,23 @@ LLM Gate & 731.64 & 637.5 & 889.03 & 2655.1 \\
 \raggedright \textit{*Note: The 602\,ms cache latency is entirely dominated by generating the 384-dimensional vector embedding on CPU; the actual vector similarity lookup in ChromaDB takes $\sim$1\,ms. Migrating embedding generation to a T4 GPU reduces this latency to $\sim$20\,ms, which would significantly drop steady-state $L_{eff}$.}
 \end{table}
 
+\begin{table}[t]
+\centering
+\caption{OOD Generalization Across Threshold Sweeps}
+\label{tab:ood_thresholds}
+\footnotesize
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Threshold ($\tau$)} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1 Score} \\
+\midrule
+0.80 & 89.80\% & 96.49\% & 87.30\% & 91.67\% \\
+0.85 & 91.84\% & 98.25\% & 88.89\% & 93.33\% \\
+0.90 & 86.73\% & 96.30\% & 82.54\% & 88.89\% \\
+0.95 & 90.82\% & 98.21\% & 87.30\% & 92.44\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Inference from Results}
 
 The consolidated results reveal several critical insights across
