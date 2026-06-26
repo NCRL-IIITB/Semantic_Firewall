@@ -510,9 +510,7 @@ and F1 are reported as percentages (\%).
 & Anthropic Claude 3.5
     & 2000 & 94.70 & 74.30 & 83.20
     & 1156\,ms & Proprietary API \\
-& Meta Llama Guard 4 (12B)
-    & 2000 & 92.50 & 35.50 & 51.30
-    & 564\,ms & Safety classifier \\
+
 
 \midrule
 \multicolumn{8}{@{}l}{\textit{(c) Cross-Dataset Generalization}} \\
@@ -641,11 +639,8 @@ significantly lower---GPT-4.0 catches only 84.60\% of attacks
 compared to our 99.82\%. The advantage is fundamentally
 architectural: the Regex and Cache layers intercept structural
 attacks that standalone LLMs miss, boosting system-level Recall
-beyond what any single model achieves alone. Dedicated safety
-classifiers perform poorly: Llama Guard~4 achieves only 51.30\% F1
-(35.50\% Recall)
-confirming that content moderation models do not generalize to
-structural prompt injections (Llama Guard~4 was evaluated using the exact prompt formatting and taxonomy prescribed in Meta's official documentation to ensure a fair baseline). Statistical significance was verified
+beyond what any single model achieves alone. This confirms that content moderation models do not generalize to
+structural prompt injections. Statistical significance was verified
 via McNemar's test ($\chi^2{=}4.28$, $p < 0.05$). Because 41.93\%
 of traffic is resolved by deterministic fast layers, the system's
 effective latency drops to 459.85\,ms even from a cold start,
