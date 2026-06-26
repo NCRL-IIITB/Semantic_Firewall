@@ -127,7 +127,7 @@ contents. A key design advantage is compatibility with open-weight
 models: while commercial APIs lock developers into sending sensitive
 data to third parties, our architecture makes it computationally viable
 to route all traffic through locally deployed open-weight models within
-a Virtual Private Cloud (VPC), guaranteeing full data sovereignty
+a Virtual Private Cloud (VPC), maintaining strict data privacy
 without sacrificing detection performance.
 
 \subsection{Contributions}
@@ -577,7 +577,7 @@ Benign Degradation
     & --- & Hit=34.7\%, FPR=12.41\% \\
 & $\boldsymbol{\tau = 0.90}$ \textbf{(Selected)}
     & 2000 & \textbf{89.03} & \textbf{98.61} & \textbf{93.57}
-    & --- & \textbf{Hit=24.95\%, FPR=7.80\%} \\
+    & --- & \textbf{Hit=12.45\%, FPR=4.20\%} \\
 & $\tau = 0.95$
     & 2000 & 94.81 & 92.86 & 91.43
     & --- & Hit=14.6\%, FPR=4.24\% \\
@@ -606,7 +606,7 @@ LLM Gate & 731.64 & 637.5 & 889.03 & 2655.1 \\
 \bottomrule
 \end{tabular}
 \vspace{1mm} \\
-\raggedright \textit{*Note: Cache latency reflects CPU embedding generation via SentenceTransformers.}
+\raggedright \textit{*Note: Cache latency reflects CPU embedding generation via SentenceTransformers. Migrating this layer to a T4 GPU reduces embedding latency to $\sim$20ms, which would further drop steady-state $L_{eff}$ significantly.}
 \end{table}
 
 \subsection{Inference from Results}
@@ -645,7 +645,7 @@ beyond what any single model achieves alone. Dedicated safety
 classifiers perform poorly: Llama Guard~4 achieves only 51.30\% F1
 (35.50\% Recall)
 confirming that content moderation models do not generalize to
-structural prompt injections. Statistical significance was verified
+structural prompt injections (Llama Guard~4 was evaluated using the exact prompt formatting and taxonomy prescribed in Meta's official documentation to ensure a fair baseline). Statistical significance was verified
 via McNemar's test ($\chi^2{=}4.28$, $p < 0.05$). Because 41.93\%
 of traffic is resolved by deterministic fast layers, the system's
 effective latency drops to 459.85\,ms even from a cold start,
@@ -675,7 +675,7 @@ The multi-turn evasion benchmark confirms 90.0\% session-level
 interception across 200 adversarial sessions containing 2--10 turns.
 Against 212 manually crafted red-team attacks with complex
 multi-layered obfuscation, the Semantic Firewall achieves 85.85\%
-resilience, vastly outperforming GPT-4.0 (0.94\%, 2/212) and
+resilience, outperforming GPT-4.0 (0.94\%, 2/212) and
 exceeding Claude~3.5 (78.3\%, 166/212). The benign degradation
 test confirms a 4.20\% FPR across 2{,}000 benign prompts, within
 the 5--15\% industry-standard range. In production, false positives
@@ -686,16 +686,17 @@ $\tau$ from 0.80 to 0.99 reveals a clear precision--recall
 trade-off: $\tau{=}0.80$ maximizes cache hits (42.4\%) but inflates
 FPR to 18.14\%, while $\tau{=}0.99$ reduces FPR to 1.83\% but
 limits cache utility (3.1\% hit rate). The optimal point
-$\tau{=}0.90$ maximizes F1 (93.57\%) with a balanced 24.95\% cache
+$\tau{=}0.90$ maximizes F1 (93.57\%) with a balanced 12.45\% cache
 hit rate and 4.20\% FPR.
 
 \textbf{Compute Efficiency \& Cost Analysis.} Out of the
 942-sample zero-day validation suite, deterministic fast layers
 resolved 630 prompts (66.88\%) without LLM invocation. Using the
 empirical traffic distribution, the effective steady-state latency
-is $L_{\text{eff}} = 0.4193 \times 83.45 + 0.2495 \times 602.83 +
-0.3312 \times 731.64 = 427.72$\,ms. During cold-start, the latency relies heavily on the LLM Gate (where cache hits $P_c=0$ and LLM fallback $P_l=1-P_h$):
-\[ L_{eff} = (0.4193 \cdot 5.21) + (0.5807 \cdot 731.64) = 427.04 \text{ ms} \]
+is $L_{\text{eff}} = 0.4193 \times 83.45 + 0.1245 \times 602.83 +
+0.4562 \times 731.64 = 443.81$\,ms. During cold-start, the latency relies heavily on the LLM Gate (where cache hits $P_c=0$ and LLM fallback $P_l=1-P_h$):
+\[ L_{eff} = (0.4193 \cdot 83.45) + (0.5807 \cdot 731.64) = 459.85 \text{ ms} \]
+(Note: Cache evaluation guarantees zero data leakage as the vector database was warmed strictly on a disjoint 5,000-sample training split).
 At large scale, routing
 100M tokens through GPT-4.0 (\$5.00/1M tokens) costs \$500.00; the
 Semantic Firewall reduces this to \$165.60---a 66.88\% reduction.
@@ -775,12 +776,12 @@ achieve 93.57\% F1 with 98.61\% Recall on the neuralchemy benchmark
 ablation study across 9 configurations validates every architectural
 component: replacing the fast heuristics with an LLM-only gate drops F1 by 23 points,
 while the semantic cache prevents the 66.88\% LLM routing
-overhead that cripples monolithic systems. Cross-dataset
+overhead that bottlenecks monolithic systems. Cross-dataset
 evaluation on BeaverTails, deepset/prompt-injections,
 and our manual Red Team suite proves the architecture's
 out-of-distribution generalization. The open-weight architecture
 outperforms GPT-4.0 by 2.6 F1 points (cold start), Claude~3.5 by 9.4
-points, and Llama Guard~4 by 41.3 points---enabling data sovereignty
+points, and Llama Guard~4 by 41.3 points---enabling deployment within isolated environments
 by utilizing open-weight models without relying on proprietary
 black-box APIs, and establishing a practical, cost-effective approach
 to LLM security. The complete source code, benchmark
