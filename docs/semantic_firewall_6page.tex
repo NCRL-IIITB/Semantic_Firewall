@@ -90,7 +90,7 @@ First, it is \textit{cost-prohibitive and computationally inefficient}:
 passing benign queries (e.g., ``What is the capital of France?'')
 through a multi-billion parameter safety model wastes immense compute,
 introduces latency bottlenecks exceeding 500\,ms per request, and
-erodes computational efficiency at scale. Second, statically trained
+imposes a substantial computational overhead at scale. Second, statically trained
 models are \textit{vulnerable to novel zero-day attacks} that exploit
 obfuscation techniques such as Base64 encoding, multi-turn hypothetical
 framing, character-level perturbation, or token smuggling---attack
@@ -127,8 +127,8 @@ contents. A key design advantage is compatibility with open-weight
 models: while commercial APIs lock developers into sending sensitive
 data to third parties, our architecture makes it computationally viable
 to route all traffic through locally deployed open-weight models within
-a Virtual Private Cloud (VPC), maintaining strict data privacy
-without sacrificing detection performance.
+a Virtual Private Cloud (VPC). This paradigm maintains strict data privacy
+boundaries without sacrificing detection performance.
 
 \subsection{Contributions}
 
@@ -386,7 +386,7 @@ To validate the architecture rigorously, we evaluate across five
 public benchmarks spanning diverse threat categories.
 \textbf{(1)~neuralchemy/Prompt-injection-dataset}~($N{=}2{,}000$):
 a balanced mixture of benign user queries and complex prompt
-injections used for the ablation study, SOTA comparison, and
+injections, serving as our primary evaluation corpus for the ablation study and
 large-scale evaluation.
 \textbf{(2)~ai4privacy/pii-masking-200k}~($N{=}209{,}261$): a
 massive multilingual corpus with embedded PII entities across dozens
@@ -716,11 +716,10 @@ quotes containing violent language, or discussing historical
 atrocities in academic context). The deterministic Regex patterns
 lack semantic context and over-trigger in these cases before the
 LLM Gate can apply contextual reasoning. Conversely, false negatives
-concentrate in unstructured data: the PII detector achieves only
-74.8\% Recall on phone numbers because synthetic datasets generate
-highly irregular formats (e.g., ``1-(800)-CALL-NOW''). Expanding
-Regex patterns to capture these edge cases risks catastrophic false
-positive explosion on arbitrary numeric strings such as timestamps.
+concentrate in highly unstructured data: the PII detector achieves only
+74.8\% Recall on phone numbers due to the irregular formatting common in synthetic datasets
+(e.g., ``1-(800)-CALL-NOW''). Expanding static Regex patterns to capture these
+edge cases risks a catastrophic false positive explosion on benign numeric strings, such as timestamps.
 These failure modes reaffirm the architecture's core thesis: rigid
 heuristics alone cannot secure unstructured data, and LLMs alone are
 too slow. Both must be orchestrated within a layered pipeline where
@@ -734,8 +733,8 @@ each component compensates for the other's weaknesses.
 While the Semantic Firewall demonstrates robust empirical
 performance, several limitations direct future research. Deploying a
 local 70B parameter model requires substantial hardware (multiple
-80GB A100 GPUs), making the upfront cost prohibitive for smaller
-enterprises. The Python GIL constrains CPU-bound heuristic
+80GB A100 GPUs), making the upfront hardware cost prohibitive for smaller
+deployments. The Python GIL constrains CPU-bound heuristic
 throughput at hyper-scale ($>$10K RPS); a production deployment
 should port the orchestrator to Go or Rust with a distributed
 vector database (e.g., Redis) for horizontal cache
@@ -792,8 +791,6 @@ Human-AI Conversations,'' \textit{arXiv preprint arXiv:2312.06674},
 \bibitem{promptguard}
 Meta, ``PromptGuard: A safeguard model against prompt injections and
 jailbreaks,'' 2024.
-
-
 
 \bibitem{rebuff}
 ProtectAI, ``Rebuff: Prompt Injection Defense,'' GitHub Repository,
