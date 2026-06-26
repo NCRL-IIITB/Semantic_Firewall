@@ -721,8 +721,8 @@ concentrate in highly unstructured data: the PII detector achieves only
 (e.g., ``1-(800)-CALL-NOW''). Expanding static Regex patterns to capture these
 edge cases risks a catastrophic false positive explosion on benign numeric strings, such as timestamps.
 These failure modes reaffirm the architecture's core thesis: rigid
-heuristics alone cannot secure unstructured data, and LLMs alone are
-too slow. Both must be orchestrated within a layered pipeline where
+heuristics alone cannot secure unstructured data, and monolithic LLMs alone
+incur prohibitive latency. Both must be orchestrated within a layered pipeline where
 each component compensates for the other's weaknesses.
 
 % ====================================================================
@@ -768,14 +768,14 @@ for novel zero-day attacks (constrained Llama-3.3-70B gate), we
 achieve 93.57\% F1 with 98.61\% Recall on the neuralchemy benchmark
 ($N{=}2{,}000$), while reducing LLM API invocations by 66.88\%. The
 ablation study across 9 configurations validates every architectural
-component: replacing the fast heuristics with an LLM-only gate drops F1 by 23 points,
+component: replacing the fast heuristics with an LLM-only gate reduces the F1 score by 23.37 percentage points,
 while the semantic cache prevents the 66.88\% LLM routing
 overhead that bottlenecks monolithic systems. Cross-dataset
 evaluation on BeaverTails, deepset/prompt-injections,
 and our manual Red Team suite proves the architecture's
 out-of-distribution generalization. The open-weight architecture
-outperforms GPT-4.0 by 2.6 F1 points (cold start), Claude~3.5 by 9.4
-points, and Llama Guard~4 by 41.3 points---enabling deployment within isolated environments
+outperforms GPT-4.0 by 2.64 percentage points (cold start), Claude~3.5 by 9.44
+percentage points, and Llama Guard~4 by 41.34 percentage points---enabling deployment within isolated environments
 by utilizing open-weight models without relying on proprietary
 black-box APIs, and establishing a practical, cost-effective approach
 to LLM security. The complete source code, benchmark
