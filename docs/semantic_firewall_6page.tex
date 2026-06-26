@@ -669,16 +669,20 @@ Semantic Firewall reduces this to \$165.60---a 66.88\% reduction.
 
 \begin{table}[t]
 \centering
-\caption{Error Taxonomy: Failure Modes of the Semantic Firewall}
-\label{tab:error_analysis}
+\caption{Red Team Resilience Breakdown ($N=212$)}
+\label{tab:red_team}
 \footnotesize
-\begin{tabular}{@{}lc|lc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{False Positives (Benign Blocked)} & \textbf{\%} & \textbf{False Negatives (Attacks Missed)} & \textbf{\%} \\
+\textbf{Attack Category} & \textbf{Blocked} & \textbf{Resilience} \\
 \midrule
-Academic/Historical discussions & 42\% & Multi-turn persona building & 48\% \\
-Fictional roleplay context & 31\% & Highly obfuscated token smuggling & 35\% \\
-Over-triggered PII regex & 27\% & Semantic drift / unseen languages & 17\% \\
+Direct Injection Override & 59/61 & 96.72\% \\
+Persona Adoption (DAN) & 43/46 & 93.48\% \\
+Base64/Hex Obfuscation & 36/41 & 87.80\% \\
+Hypothetical Academic Framing & 24/34 & 70.59\% \\
+Multi-Turn Escalation & 20/30 & 66.67\% \\
+\midrule
+\textbf{Total} & \textbf{182/212} & \textbf{85.85\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -692,7 +696,7 @@ rather than consuming expensive LLM compute---is empirically
 validated by the 66.88\% fast-layer interception rate and the
 23.37-point F1 improvement over a standalone LLM gate.
 
-Table~\ref{tab:error_analysis} presents a quantitative error taxonomy. False positives (42\%) primarily occur when regex patterns over-trigger on toxic-adjacent benign framing (e.g., historical academic discussions) before the LLM can apply semantic context. Conversely, false negatives concentrate in highly unstructured data where expanding static regex risks a false positive explosion. This reaffirms the core thesis: heuristics alone lack context, and LLMs alone lack speed; both must be orchestrated. Furthermore, the 384-dimensional dense vectors map synonymous attacks closely, bounding adversarial cache evasion via simple linguistic perturbation (cosine similarity drops by only $\sim 0.04$--$0.08$).
+Table~\ref{tab:red_team} presents a quantitative resilience breakdown against 212 manual red team attacks. The system excels against direct injections and persona adoption ($>$93\% resilience), while multi-turn escalation and hypothetical framing prove more challenging, primarily because these attacks avoid structural triggers and rely purely on semantic drift. This reaffirms the core thesis: heuristics alone lack context, and LLMs alone lack speed; both must be orchestrated. Furthermore, the 384-dimensional dense vectors map synonymous attacks closely, bounding adversarial cache evasion via simple linguistic perturbation (cosine similarity drops by only $\sim 0.04$--$0.08$).
 
 \textbf{Case Study: Payload Obfuscation.} Consider a character-obfuscated attack: \texttt{"I-g-n-o-r-e p-r-e-v-i-o-u-s..."} A monolithic LLM often misses this due to token fragmentation. Our deterministic Regex engine immediately normalizes the dash-separated text and blocks it at Layer 1 within 5.21\,ms, bypassing neural evaluation entirely.
 
