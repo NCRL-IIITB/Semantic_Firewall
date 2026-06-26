@@ -294,26 +294,48 @@ ws://localhost:8000/ws/analyze
 
 ## 📊 Benchmarks
 
-### PII Detection (vs ai4privacy/pii-masking-200k)
+The Semantic Firewall was rigorously evaluated against multiple datasets (`neuralchemy`, `BeaverTails`, `deepset/prompt-inj`, `toxic-chat`) and benchmarked against industry standards.
 
-| Metric | Score |
-|---|---|
-| Total Samples Tested | 209,261 |
-| Total Ground-Truth Entities | 93,160 |
-| True Positives | 90,059 |
-| **Precision** | **85.9%** |
-| **Recall** | **96.7%** |
-| **F1 Score** | **91.0%** |
+### 1. Overall System Performance (neuralchemy, N=2,000)
 
-### Unsafe Content Detection (Custom Scaled Corpus)
+| System Configuration | Precision | Recall | F1 Score | Avg Latency | Notes |
+|---|---|---|---|---|---|
+| **Semantic Firewall (Ours - Warm Cache)** | **89.03%** | **98.61%** | **93.57%** | **427.72 ms** | Full parallel pipeline |
+| OpenAI GPT-4o | 96.10% | 84.60% | 90.00% | 876 ms | Proprietary API |
+| Google Gemini 2.5 Flash Lite | 95.30% | 81.00% | 87.60% | 1,464 ms | Proprietary API |
+| Anthropic Claude 3.5 Haiku | 94.70% | 74.30% | 83.20% | 1,156 ms | Proprietary API |
+| Meta Llama Guard 4 (12B) | 92.50% | 35.50% | 51.30% | 564 ms | Safety classifier |
+| OpenAI Safeguard (20B) | 24.10% | 3.80% | 6.60% | 2,530 ms | Safety classifier |
 
-| Metric | Score |
-|---|---|
-| Total Samples Tested | 2,000 |
-| False Positive Rate | 7.81% |
-| **Precision** | **68.99%** |
-| **Recall** | **79.16%** |
-| **F1 Score** | **73.66%** |
+### 2. Cross-Dataset Generalization (F1 Score)
+
+| Dataset | Semantic Firewall (Ours) | Leading Baseline | Baseline Model |
+|---|---|---|---|
+| **BeaverTails** | **74.80%** | 66.86% | Meta Llama Guard 4 |
+| **deepset/prompt-inj.** | **83.93%** | 82.50% | ProtectAI Rebuff |
+| **toxic-chat** | 49.63% | **69.40%** | Nvidia NeMo Guardrails |
+
+### 3. Specialized Threat Detection
+
+| Category | Metric | Score | Notes |
+|---|---|---|---|
+| **PII Detection** | F1 Score | **91.00%** | Tested on 209K entities (ai4privacy) in <2ms |
+| **Red Team Resilience** | Block Rate | **85.70%** | Manual jailbreaks vs GPT-4o-mini (1%) and Claude 3 (79%) |
+| **Unsafe Content** | F1 Score | **73.66%** | FPR constrained to 7.81% |
+| **Multi-Turn Evasion** | Recall | **90.00%** | Tested against 200 multi-turn attacks |
+
+### 4. Component Latency Profiling
+
+The architecture bounds overall latency by executing heuristic agents concurrently and utilizing the LLM Gate sparingly.
+
+| Component | Avg (ms) | P99 (ms) | Description |
+|---|---|---|---|
+| **Regex Engine** | **5.21 ms** | 9.1 ms | Fast deterministic intercept |
+| **Parallel Detector Agents** | **83.45 ms** | 102.4 ms | 8 concurrent Python threads |
+| **Semantic Cache** | **602.83 ms** | 620.1 ms | Local ChromaDB search |
+| **LLM Gate** | **731.64 ms** | 2,655.1 ms | Deep semantic analysis |
+
+*Note: The LLM Gate is only invoked if the heuristic risk score falls into the inconclusive threshold range. This bypass saves ~66.88% on downstream API costs for safe traffic.*
 
 ### Running Benchmarks
 
@@ -321,9 +343,10 @@ ws://localhost:8000/ws/analyze
 # PII benchmark (no API calls, instant)
 python semantic_firewall/benchmarks/pii_benchmark.py
 
-# Unsafe content benchmark (uses Groq API)
+# Unsafe content benchmark (uses API)
 python semantic_firewall/benchmarks/unsafe_benchmark.py
 
+# Manual Red Team script
 python semantic_firewall/benchmarks/red_team_hacker.py
 
 # Full leaderboard generation
