@@ -741,9 +741,9 @@ each component compensates for the other's weaknesses. Furthermore, the architec
 While the Semantic Firewall demonstrates robust empirical
 performance, several limitations direct future research. Deploying a
 local 70B parameter model requires substantial hardware (multiple
-80GB A100 GPUs), making the upfront hardware cost prohibitive for smaller
+80GB A100 GPUs), making the upfront hardware cost a barrier for smaller
 deployments. The Python GIL constrains CPU-bound heuristic
-throughput at hyper-scale ($>$10K RPS); a production deployment
+concurrency in high-volume environments; a production deployment
 should port the orchestrator to Go or Rust with a distributed
 vector database (e.g., Redis) for horizontal cache
 scaling across Kubernetes clusters. Sophisticated attackers could
@@ -769,7 +769,7 @@ cloud-hosted safety model dependence entirely.
 
 The Semantic Firewall definitively demonstrates that relying on a
 single large language model for security is computationally and
-architecturally flawed. By introducing a defense-in-depth
+architecturally suboptimal. By introducing a defense-in-depth
 architecture combining fast deterministic filtering for known threats
 (Regex, Semantic Cache, Parallel Heuristics) and deep LLM analysis
 for novel zero-day attacks (constrained Llama-3.3-70B gate), we
