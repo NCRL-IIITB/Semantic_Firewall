@@ -248,9 +248,9 @@ via the canonical Regex
 \texttt{\textasciicircum(?:[A-Za-z0-9+/]\{4\})*...}),
 token smuggling patterns (\texttt{<<}, \texttt{[[}}), and explicit
 jailbreak prefixes such as ``DAN'' prompts. The Regex engine operates
-at pure CPU cost with zero neural inference, serving as a cost-saving
-compute filter designed to instantly neutralize script-kiddie attacks
-and low-effort copy-pasted jailbreaks before they consume any
+at pure CPU cost with zero neural inference, serving as a highly efficient
+compute filter designed to instantly neutralize known attack vectors
+and unsophisticated jailbreak attempts before they consume any
 downstream resources.
 
 \subsection{Layer 2: Semantic Cache (Self-Healing)}
@@ -301,8 +301,8 @@ cross-references inputs against known malicious IPs/URLs;
 curated toxic lexicons; (6)~\textit{Injection Detection:} structural
 Regex targeting override patterns and token smuggling;
 (7)~\textit{Unsafe Content:} rigid heuristic rule-sets for violence,
-CSAM, and illegal activities; and (8)~\textit{Custom Rules:} bespoke
-system constraints.
+CSAM, and illegal activities; and (8)~\textit{Custom Rules:} domain-specific
+operational constraints.
 
 These agents utilize exact-match keyword dictionaries, tuned Regex
 boundaries, and hard-coded mathematical limits (e.g., maximum token
@@ -620,7 +620,7 @@ nearly identical 69.40\% F1 at 140$\times$ lower latency (5.21\,ms).
 Combining layers yields consistent, compounding gains: Regex+Cache
 (Config~5) reaches 88.40\% F1 with dramatically improved Precision
 (98.51\%), and adding Parallel Detectors (Config~6) reaches 90.40\%
-F1. The full system (Config~8) achieves the peak 93.57\% F1 with
+F1. The fully orchestrated system (Config~8) achieves a peak F1 score of 93.57\% with
 98.61\% Recall. The 23.37\% F1 improvement from Config~1 to Config~8
 is statistically significant ($p < 0.05$, bootstrap $N{=}10{,}000$,
 $\text{SD}=\pm 0.42\%$), confirming that each heuristic layer
@@ -660,9 +660,9 @@ architecture effectively intercepts structural injections,
 providing a mathematically sound security bound across diverse out-of-distribution environments.
 
 \textbf{Specialized Evaluations (Table~\ref{tab:combined}d).} The
-PII Regex layer achieves 91.0\% F1 with 96.7\% Recall across
-209K samples at sub-2\,ms latency using purely deterministic Regex
-patterns with zero LLM cost. Highly structured entities (emails,
+dedicated PII layer achieves 91.0\% F1 with 96.7\% Recall across
+209K samples at sub-2\,ms latency, relying entirely on deterministic
+pattern matching with zero neural overhead. Highly structured entities (emails,
 credit cards, IBANs, IP addresses, ZIP codes) are detected at
 $>$99.7\% Recall, while moderately variable types like phone numbers
 achieve 74.8\% due to irregular formatting in synthetic datasets.
@@ -741,8 +741,8 @@ vector database (e.g., Redis) for horizontal cache
 scaling across Kubernetes clusters. Sophisticated attackers could
 exploit adversarial embeddings to generate synonymous payloads that
 intentionally maximize cosine distance below $\tau{=}0.90$, or
-launch Denial-of-Wallet attacks by flooding the system with novel
-variants to force consecutive cache misses and exhaust GPU budgets.
+launch resource exhaustion attacks (i.e., Denial-of-Wallet) by flooding the system with novel
+variants, forcing consecutive cache misses to deliberately exhaust GPU compute budgets.
 Future iterations must explore adversarial training for the
 embedding model and density-based anomaly detection within the
 vector space. The reliance on public HuggingFace datasets introduces
