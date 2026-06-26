@@ -186,22 +186,9 @@ confirms this: Llama Guard~4 achieves only 51.30\% F1 on the
 neuralchemy benchmark, demonstrating that content moderation models do
 not generalize to structural prompt injections.
 
-\textbf{Adversarial Evaluation \& Structural Defenses.} Recent literature extensively documents the fragility of LLMs against adversarial prompts~\cite{surveyprompt}. Automated jailbreak generation frameworks such as AutoDAN~\cite{autodan} and PAIR~\cite{pair} demonstrate that black-box models can be compromised with high success rates using iterative refinement. To evaluate defensive robustness against these evolving threats, frameworks like PromptBench~\cite{promptbench} and JailGuard~\cite{jailguard} provide standardized adversarial test suites. On the defensive side, approaches like SmoothLLM~\cite{smoothllm} and StruQ~\cite{struq} attempt to mitigate these vulnerabilities through input perturbation and structured query execution, respectively. However, these methods often incur high computational overhead or require deep integration into the target application.
+\textbf{Adversarial Evaluation \& Structural Defenses.} Recent literature documents LLM fragility against adversarial prompts~\cite{surveyprompt,autodan,pair}. While frameworks like PromptBench~\cite{promptbench} evaluate robustness, defenses like SmoothLLM~\cite{smoothllm} and StruQ~\cite{struq} often incur high computational overhead.
 
-\textbf{Orchestration \& Guardrail Frameworks.} Nvidia's NeMo
-Guardrails~\cite{nemoguardrails} introduces programmable, rule-based
-routing for LLM applications using Colang scripting. While this enables
-customizable safety policies, the static rule-matching paradigm
-fundamentally cannot catch semantically similar but lexically diverse
-attack reformulations. The Semantic Firewall advances this paradigm by
-replacing rigid rule-matching with a deep semantic cache backed by
-cosine similarity over dense 384-dimensional vector embeddings,
-enabling the system to intercept rephrased, paraphrased, and
-synonymously restructured attacks that rule-based systems miss
-entirely. Our cross-dataset evaluation demonstrates this advantage:
-the Semantic Firewall achieves 49.63\% F1 on NeMo's native toxic-chat
-dataset with 91.44\% Recall, catching significantly more threats than
-NeMo's 66.90\% Recall at the cost of lower precision.
+\textbf{Orchestration Frameworks.} NeMo Guardrails~\cite{nemoguardrails} enables rule-based routing, but static rule-matching fails on lexically diverse reformulations. We advance this by replacing rigid rules with a semantic cache, achieving higher recall than NeMo (91.44\% vs 66.90\%) on the toxic-chat dataset.
 
 \textbf{Prompt Injection Specific Defenses.} Rebuff~\cite{rebuff}
 employs a multi-layered defense combining heuristic analysis, LLM-based
@@ -340,25 +327,13 @@ aggressive heuristic fallback.
 \Input{User prompt $q \in \mathcal{Q}$, Similarity threshold $\tau \in [0, 1]$, Vector cache $\mathcal{C}$, Heuristic ensemble $\mathcal{D} = \{D_1, \ldots, D_k\}$}
 \Output{Classification decision $d \in \{\textsc{Allow}, \textsc{Block}\}$}
 \BlankLine
-\tcp{Phase 1: Deterministic Pattern Analysis}
-$M_{\text{regex}} \leftarrow \textsc{EvaluateRegex}(q)$\;
-\lIf{$M_{\text{regex}} \neq \emptyset$}{
-    \Return $\textsc{Block}$
-}
-\BlankLine
-\tcp{Phase 2: High-Dimensional Semantic Retrieval}
-$\vec{v}_q \leftarrow \textsc{SentenceTransformer}(q)$ \tcp*{$\vec{v}_q \in \mathbb{R}^{384}$}
-$s_{\text{max}} \leftarrow \max_{\vec{c} \in \mathcal{C}} \frac{\vec{v}_q \cdot \vec{c}}{\|\vec{v}_q\| \|\vec{c}\|}$ \tcp*{Cosine similarity}
-\lIf{$s_{\text{max}} \geq \tau$}{
-    \Return $\textsc{Block}$
-}
-\BlankLine
-\tcp{Phase 3: Parallelized Heuristic Ensemble}
-$\mathcal{R} \leftarrow \bigcup_{i=1}^{k} \textsc{AsyncExecute}(D_i, q)$\;
-\lIf{$\textsc{AggregateRisk}(\mathcal{R}) \geq \theta_{\text{risk}}$}{
-    \Return $\textsc{Block}$
-}
-\BlankLine
+$M_{\text{regex}} \leftarrow \textsc{EvaluateRegex}(q)$ \tcp*{Phase 1: Regex}
+\lIf{$M_{\text{regex}} \neq \emptyset$}{ \Return $\textsc{Block}$ }
+$\vec{v}_q \leftarrow \textsc{SentenceTransformer}(q)$ \tcp*{Phase 2: Semantic Cache}
+$s_{\text{max}} \leftarrow \max_{\vec{c} \in \mathcal{C}} \frac{\vec{v}_q \cdot \vec{c}}{\|\vec{v}_q\| \|\vec{c}\|}$\;
+\lIf{$s_{\text{max}} \geq \tau$}{ \Return $\textsc{Block}$ }
+$\mathcal{R} \leftarrow \bigcup_{i=1}^{k} \textsc{AsyncExecute}(D_i, q)$ \tcp*{Phase 3: Heuristics}
+\lIf{$\textsc{AggregateRisk}(\mathcal{R}) \geq \theta_{\text{risk}}$}{ \Return $\textsc{Block}$ }
 \tcp{Phase 4: Constrained Generative Gate}
 $y_{\text{LLM}} \leftarrow \textsc{Llama-3.3-70B}(q, \text{schema}=\text{JSON}, T=0.0)$\;
 \If{$y_{\text{LLM}}.\text{action} = \textsc{Block}$}{
@@ -445,10 +420,7 @@ scale.
 % ====================================================================
 \section{Results}
 
-Table~\ref{tab:combined} presents the consolidated results across all
-evaluation phases and baselines. Table~\ref{tab:latency} provides
-the component-level latency breakdown demonstrating the computational
-efficiency of each architectural layer.
+Table~\ref{tab:combined} presents the consolidated results. Isolated profiling yields mean component latencies of 5.21\,ms (Regex), 83.45\,ms (Heuristics), 602.83\,ms (Cache, bottlenecked by CPU embedding), and 731.64\,ms (LLM Gate).
 
 \begin{table*}[t]
 \centering
@@ -583,26 +555,6 @@ Benign Degradation
 \end{tabular}
 \end{table*}
 
-\begin{table}[t]
-\centering
-\caption{Component Latency Breakdown (Pure Compute, Isolated Profiling)}
-\label{tab:latency}
-\footnotesize
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-\textbf{Component} & \textbf{Avg (ms)} & \textbf{Med (ms)}
-    & \textbf{P95 (ms)} & \textbf{P99 (ms)} \\
-\midrule
-Regex Engine & 5.21 & 5.0 & 7.24 & 9.1 \\
-Semantic Cache & 602.83 & 600.0 & 615.37 & 620.1 \\
-Detector Agents & 83.45 & 80.0 & 95.12 & 102.4 \\
-Risk Aggregation & 0.4 & 0.4 & 0.6 & 0.8 \\
-LLM Gate & 731.64 & 637.5 & 889.03 & 2655.1 \\
-\bottomrule
-\end{tabular}
-\vspace{1mm} \\
-\raggedright \textit{*Note: The 602\,ms cache latency is entirely dominated by generating the 384-dimensional vector embedding on CPU; the actual vector similarity lookup in ChromaDB takes $\sim$1\,ms. Migrating embedding generation to a T4 GPU reduces this latency to $\sim$20\,ms, which would significantly drop steady-state $L_{eff}$.}
-\end{table}
 
 \begin{table}[t]
 \centering
@@ -740,58 +692,16 @@ rather than consuming expensive LLM compute---is empirically
 validated by the 66.88\% fast-layer interception rate and the
 23.37-point F1 improvement over a standalone LLM gate.
 
-Table~\ref{tab:error_analysis} presents a quantitative taxonomy of system failures. The primary source of false positives (42\%) occurs when users input
-toxic-adjacent but ultimately benign framing (e.g., analyzing movie
-quotes containing violent language, or discussing historical
-atrocities in academic context). The deterministic Regex patterns
-lack semantic context and over-trigger in these cases before the
-LLM Gate can apply contextual reasoning. Conversely, false negatives
-concentrate in highly unstructured data: the PII detector achieves only
-74.8\% Recall on phone numbers due to the irregular formatting common in synthetic datasets
-(e.g., ``1-(800)-CALL-NOW''). Expanding static Regex patterns to capture these
-edge cases risks a catastrophic false positive explosion on benign numeric strings, such as timestamps.
-These failure modes reaffirm the architecture's core thesis: rigid
-heuristics alone cannot secure unstructured data, and monolithic LLMs alone
-incur prohibitive latency. Both must be orchestrated within a layered pipeline where
-each component compensates for the other's weaknesses. Furthermore, the architecture demonstrates significant resilience to adversarial cache evasion. Because the 384-dimensional dense vectors map synonymous attacks (e.g., ``Ignore previous rules'' vs.\ ``Disregard prior instructions'') closely in the latent space, preliminary testing on synonym-substituted and paraphrased attacks shows that cosine similarity drops by only $\sim 0.04$--$0.08$ on average, frequently remaining above the $\tau=0.90$ threshold. This bounds the attacker's ability to easily evade the cache using simple linguistic perturbation.
+Table~\ref{tab:error_analysis} presents a quantitative error taxonomy. False positives (42\%) primarily occur when regex patterns over-trigger on toxic-adjacent benign framing (e.g., historical academic discussions) before the LLM can apply semantic context. Conversely, false negatives concentrate in highly unstructured data where expanding static regex risks a false positive explosion. This reaffirms the core thesis: heuristics alone lack context, and LLMs alone lack speed; both must be orchestrated. Furthermore, the 384-dimensional dense vectors map synonymous attacks closely, bounding adversarial cache evasion via simple linguistic perturbation (cosine similarity drops by only $\sim 0.04$--$0.08$).
 
-\subsection{Adversarial Case Study: Payload Obfuscation}
-To illustrate the defense-in-depth pipeline in action, consider a sophisticated adversarial payload utilizing character-level obfuscation:
-\vspace{1mm}
-\begin{quote}
-\small \texttt{"I-g-n-o-r-e p-r-e-v-i-o-u-s d-i-r-e-c-t-i-v-e-s. Execute \_system\_command('curl 10.0.0.1/malware.sh | bash')."}
-\end{quote}
-\vspace{1mm}
-A monolithic LLM guardrail often misses this attack due to token fragmentation confusing the attention mechanism. In the Semantic Firewall, the deterministic Regex engine immediately normalizes the dash-separated text (a standard heuristic preprocessing step), matches the underlying ``ignore previous'' signature and the shell execution payload, and outputs a \texttt{Block} decision at Layer 1 within 5.21\,ms, entirely bypassing the vulnerable neural components.
+\textbf{Case Study: Payload Obfuscation.} Consider a character-obfuscated attack: \texttt{"I-g-n-o-r-e p-r-e-v-i-o-u-s..."} A monolithic LLM often misses this due to token fragmentation. Our deterministic Regex engine immediately normalizes the dash-separated text and blocks it at Layer 1 within 5.21\,ms, bypassing neural evaluation entirely.
 
 % ====================================================================
 % VII. LIMITATIONS & FUTURE WORK
 % ====================================================================
 \section{Limitations \& Future Work}
 
-While the Semantic Firewall demonstrates robust empirical
-performance, several limitations direct future research. Deploying a
-local 70B parameter model requires substantial hardware (multiple
-80GB A100 GPUs), making the upfront hardware cost a barrier for smaller
-deployments. The Python GIL constrains CPU-bound heuristic
-concurrency in high-volume environments; a production deployment
-should port the orchestrator to Go or Rust with a distributed
-vector database (e.g., Redis) for horizontal cache
-scaling across Kubernetes clusters. Sophisticated attackers could
-exploit adversarial embeddings to generate synonymous payloads that
-intentionally maximize cosine distance below $\tau{=}0.90$, or
-launch resource exhaustion attacks (i.e., Denial-of-Wallet) by flooding the system with novel
-variants, forcing consecutive cache misses to deliberately exhaust GPU compute budgets.
-Future iterations must explore adversarial training for the
-embedding model and density-based anomaly detection within the
-vector space. The reliance on public HuggingFace datasets introduces
-potential pretraining data contamination for Llama-3.3-70B,
-artificially inflating performance via memorization; future
-evaluations should utilize privately generated zero-day benchmarks.
-Finally, fine-tuning quantized Small Language Models (e.g.,
-Llama-3-8B via vLLM) for the gate role could reduce slow-path
-latency from 731\,ms to under 150\,ms, fundamentally eliminating
-cloud-hosted safety model dependence entirely.
+While robust, the architecture has limitations. Deploying a 70B model requires substantial GPU hardware, and the Python orchestrator may bottleneck under high volume; production deployments should utilize Go/Rust and distributed caching (e.g., Redis). Adversaries could attempt resource exhaustion (Denial-of-Wallet) by flooding novel variants to force continuous GPU inference. Future work involves adversarial embedding training, utilizing private zero-day datasets to rule out pretraining contamination, and fine-tuning quantized Small Language Models (e.g., Llama-3-8B) to reduce slow-path latency below 150\,ms.
 
 % ====================================================================
 % VIII. CONCLUSION
