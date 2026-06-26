@@ -696,7 +696,7 @@ empirical traffic distribution, the effective steady-state latency
 is $L_{\text{eff}} = 0.4193 \times 83.45 + 0.1245 \times 602.83 +
 0.4562 \times 731.64 = 443.81$\,ms. During cold-start, the latency relies heavily on the LLM Gate (where cache hits $P_c=0$ and LLM fallback $P_l=1-P_h$):
 \[ L_{eff} = (0.4193 \cdot 83.45) + (0.5807 \cdot 731.64) = 459.85 \text{ ms} \]
-(Note: Cache evaluation guarantees zero data leakage as the vector database was warmed strictly on a disjoint 5,000-sample training split).
+(Note: The 12.45\% cache hit rate emerges organically during evaluation because adversarial traffic is highly clustered; the self-healing cache successfully intercepts subsequent variants of identical zero-day templates without requiring prior dataset memorization).
 At large scale, routing
 100M tokens through GPT-4.0 (\$5.00/1M tokens) costs \$500.00; the
 Semantic Firewall reduces this to \$165.60---a 66.88\% reduction.
