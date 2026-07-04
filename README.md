@@ -2,7 +2,6 @@
   <h1>🛡️ Semantic Firewall</h1>
   <p><b>A Hybrid Defense-in-Depth Architecture for LLM Security</b></p>
 
-  <a href="https://arxiv.org/abs/XXXX.XXXXX"><img src="https://img.shields.io/badge/Paper-ArXiv-red.svg" alt="Paper"></a>
   <a href="https://github.com/NCRL-IIITB/Semantic_Firewall/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10+-success.svg" alt="Python 3.10+"></a>
 </div>
@@ -74,17 +73,4 @@ The evaluation utilizes the following public HuggingFace datasets to ensure broa
 
 ## 📝 Citation
 
-If you find this code or our paper useful in your research, please cite us:
-
-```bibtex
-@misc{semanticfirewall2026,
-      title={Semantic Firewall: A Hybrid Defense-in-Depth Architecture for LLM Security}, 
-      author={Anonymous Authors},
-      year={2026},
-      eprint={XXXX.XXXXX},
-      archivePrefix={arXiv},
-      primaryClass={cs.CR}
-}
-```
-
-*Note: Update the BibTeX entry with the final publication details once accepted.*
+*This paper is currently under peer review. A formal BibTeX citation will be added upon acceptance and publication.*
