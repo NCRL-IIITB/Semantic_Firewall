@@ -20,6 +20,16 @@ Our architecture consists of:
 pip install -r requirements.txt
 ```
 
+## Datasets
+
+The evaluation utilizes the following public HuggingFace datasets:
+- **[neuralchemy/Prompt-injection-dataset](https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset)**: Primary evaluation corpus containing a balanced mix of benign queries and complex injections.
+- **[ai4privacy/pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k)**: Large multilingual corpus with embedded PII entities for scaled detection testing.
+- **[walledai/Multi-Turn-Jailbreak](https://huggingface.co/datasets/walledai/Multi-Turn-Jailbreak)**: Adversarial conversational sessions for session-level recall testing.
+- **[PKU-Alignment/BeaverTails](https://huggingface.co/datasets/PKU-Alignment/BeaverTails)**: Safety benchmark spanning 14 harm categories for out-of-distribution generalization.
+- **[deepset/prompt-injections](https://huggingface.co/datasets/deepset/prompt-injections)**: Used for direct head-to-head evaluation against baseline heuristic pipelines.
+- **[HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots)**: Benign corpus used for false positive rate stress testing.
+
 ## Running the Benchmarks
 
 All benchmark datasets evaluated in the paper are located in the `data/` directory. 
