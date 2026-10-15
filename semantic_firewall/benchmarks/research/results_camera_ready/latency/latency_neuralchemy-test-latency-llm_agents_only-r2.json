@@ -1,0 +1,93 @@
+{
+  "latency_run": "neuralchemy-test-latency-llm_agents_only-r2",
+  "paths_run": "neuralchemy-test-llm_agents_only-none",
+  "warmup_excluded": 10,
+  "overall_ms": {
+    "n": 200,
+    "mean": 681.147365,
+    "p50": 615.143,
+    "p95": 1413.0378500000002,
+    "p99": 1782.451239999998,
+    "min": 335.838,
+    "max": 3444.49
+  },
+  "by_path_ms": {
+    "llm": {
+      "n": 200,
+      "mean": 681.147365,
+      "p50": 615.143,
+      "p95": 1413.0378500000002,
+      "p99": 1782.451239999998,
+      "min": 335.838,
+      "max": 3444.49
+    }
+  },
+  "by_stage_ms": {
+    "deterministic": {
+      "n": 200,
+      "mean": 30.966414999999998,
+      "p50": 7.8275,
+      "p95": 120.89770000000003,
+      "p99": 397.6176299999997,
+      "min": 1.068,
+      "max": 1077.437
+    },
+    "llm": {
+      "n": 200,
+      "mean": 640.001985,
+      "p50": 572.274,
+      "p95": 1110.6562500000002,
+      "p99": 1661.4255799999974,
+      "min": 321.74,
+      "max": 3440.797
+    }
+  },
+  "path_probabilities": {
+    "llm": 1.0
+  },
+  "path_mean_latency_ms": {
+    "llm": 681.147365
+  },
+  "effective_latency_ms": 681.147365,
+  "llm_hosts": [
+    "Groq"
+  ],
+  "llm_failed": 0,
+  "meta": {
+    "timestamp_utc": "2026-10-14T08:07:08.854255+00:00",
+    "python": "3.13.7",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_count": 18,
+    "code_fingerprint": "f5984acd029a4f67"
+  },
+  "prevalence": {
+    "0.01": {
+      "llm_call_rate": 0.9999999999999913,
+      "path_probabilities": {
+        "llm": 0.9999999999999913
+      },
+      "effective_latency_ms": 681.1473649999941,
+      "p95_ms": 1491.574,
+      "p99_ms": 3444.49
+    },
+    "0.05": {
+      "llm_call_rate": 1.0000000000000049,
+      "path_probabilities": {
+        "llm": 1.0000000000000049
+      },
+      "effective_latency_ms": 681.1473650000033,
+      "p95_ms": 1491.574,
+      "p99_ms": 3444.49
+    },
+    "0.1": {
+      "llm_call_rate": 1.0000000000000062,
+      "path_probabilities": {
+        "llm": 1.0000000000000062
+      },
+      "effective_latency_ms": 681.1473650000042,
+      "p95_ms": 1491.574,
+      "p99_ms": 3444.49
+    }
+  }
+}

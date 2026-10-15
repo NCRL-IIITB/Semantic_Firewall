@@ -1,0 +1,832 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, backgrounds, calc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{pifont}
+\usepackage{hyperref}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+\urlstyle{rm}
+
+% ---- Revision highlighting (camera-ready) ----
+% \revtrue  : every change is highlighted in yellow (for checking the revision)
+% \revfalse : no highlighting (final camera-ready)
+\usepackage{soul}
+\newif\ifrev
+\revtrue
+\sethlcolor{yellow}
+\soulregister\cite7
+\soulregister\ref7
+\soulregister\eqref7
+\newcommand{\rev}[1]{\ifrev\hl{#1}\else#1\fi}                  % changed text
+\newcommand{\revm}[1]{\ifrev\colorbox{yellow}{$#1$}\else#1\fi} % changed maths
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Multi-agent Semantic Firewall: A Hybrid Defense-in-Depth System for LLM Security}
+
+\titlerunning{Multi-agent Semantic Firewall}
+
+\author{Anonymous Author(s)}
+
+\authorrunning{Anonymous Author(s)}
+
+\institute{Institution details withheld for double-blind review}
+
+\maketitle
+
+% ====================================================================
+% ABSTRACT
+% ====================================================================
+\begin{abstract}
+Large Language Models (LLMs) are increasingly being used in security-sensitive applications, yet reliably detecting prompt injection and jailbreak attacks remains challenging. Existing defenses generally deploy a single model-based classifier per request, which results in inference latency and a lack of adaptability to emerging threats. This paper presents Semantic Firewall, a layered multi-agent framework that combines deterministic screening, semantic retrieval, parallel security detectors, and constrained LLM-based verification. The architecture follows an early-exit strategy in which prompts resolved by lightweight mechanisms bypass expensive downstream analysis. A semantic cache stores newly detected threats, allowing future semantic variants to be identified without repeated LLM inference and directly addressing the adaptability gap in prior defenses. Eight specialized detectors execute concurrently to cover complementary threat categories, while a deterministic Llama-3.3-70B gate evaluates unresolved prompts with schema-constrained outputs. On the neuralchemy prompt-injection benchmark, Semantic Firewall achieves a \rev{95.81\%} F1 score and \rev{97.46\%} recall \rev{on the held-out test split}, outperforming GPT-4o, Gemini 2.5 Flash, and \rev{Claude Haiku 4.5}, while bypassing LLM inference for \rev{50.1\%} of \rev{test} requests \rev{(fewer when attacks are a smaller share of the traffic)}. \rev{Evaluations on related tasks and unseen data give F1 scores of 77.16\% on deepset, 72.95\% on BeaverTails, 94.85\% on AI4Privacy PII detection, and 92.44\% on a new out-of-distribution set.} These results demonstrate that combining lightweight detection, adaptive semantic memory, and selective LLM verification provides a practical, cost-effective defense for production LLM applications.
+
+\keywords{Large Language Models \and Prompt Injection \and LLM Security \and Semantic Firewall \and Semantic Caching \and Multi-Agent Systems.}
+\end{abstract}
+
+% ====================================================================
+% I. INTRODUCTION
+% ====================================================================
+\section{Introduction}\label{sec:intro}
+
+Large Language Models (LLMs) are now embedded in critical infrastructure: they power customer support pipelines, generate production code, answer medical queries, and drive autonomous agents that make consequential decisions with minimal human oversight. This rapid transition from research artifact to production dependency has widened the attack surface faster than defenses have matured~\cite{surveyprompt,owasptop10}. Adversaries inject carefully crafted prompts to hijack model behavior~\cite{greshake2023indirect}, construct jailbreaks that bypass alignment training~\cite{autodan,pair,wei2023jailbroken,zou2023universal}, and exploit context windows to exfiltrate personally identifiable information (PII) or cryptographic secrets. The industry's default defense has been to place an additional model ahead of the first: Llama Guard~\cite{llamaguard}, Guardrails AI~\cite{guardrailsai}, and PromptGuard~\cite{promptguard} route every incoming prompt through a dedicated safety LLM, irrespective of whether it is a benign query or a multi-turn injection attempt. This approach is simple to build but expensive to run; routing every request through a dedicated safety model adds substantial latency; our own profiling of a comparable LLM-only gate measures \rev{406\,ms} per request (Section~\ref{sec:results}), and GPU costs scale linearly with traffic. It also breaks down under novel attacks, as static safety tuning does not generalize well to new attack patterns, such as encoded payloads, token smuggling, and multi-turn injections. Meanwhile, opaque \texttt{"403 Forbidden"} rejections leave downstream applications unable to distinguish a genuine attack from a false positive~\cite{injecguard,capture}. No single defense mechanism simultaneously achieves high detection accuracy, low latency, low computational cost, and robustness to emerging prompt-injection attacks~\cite{maiorano2026tradeoffs}. In general, conventional defenses utilize detection as a single monolithic assessment, one model-based classifier evaluating every request in isolation, rather than a graded response calibrated to attack ambiguity, a problem this study tackles directly \cite{llamaguard,promptguard,rebuff,nemoguardrails}.
+
+Securing prompt-based interactions therefore demands the same defense-in-depth philosophy long established in network security~\cite{saltzer1975protection}: not a single point of inspection, but a layered architecture in which each stage is optimized against a distinct threat class. This paper presents Semantic Firewall, a five-stage realization of this philosophy in which deterministic checks and semantic memory resolve most prompts immediately, escalating only ambiguous cases through a parallel ensemble of detectors and a constrained LLM gate. Confirmed threats feed back into the semantic cache, allowing the system's detection boundary to harden with exposure rather than through manual retraining. The main contributions of this paper are the following: \begin{itemize}
+\item[1.] \textbf{Layered, early-exit multi-agent defense:}
+A semantic firewall is proposed that combines deterministic screening, semantic retrieval, parallel threat detection, and constrained LLM verification in a single architecture that resolves each prompt as early as it can be safely determined.
+\item[2.] \textbf{Adaptive semantic memory:}
+A semantic cache \rev{that} stores newly confirmed threats, enabling semantically similar future attacks to be identified without repeated LLM inference.
+\item[3.] \textbf{Parallel multi-agent detection:}
+A parallel ensemble of eight specialized security agents (Table~\ref{tab:detectors}) detects complementary threat categories concurrently while minimizing additional detection latency.
+\end{itemize}
+This architecture is evaluated on five public benchmarks against \rev{eight} representative baselines, demonstrating strong detection performance, \rev{results on unseen prompt-injection data and on related tasks}, and low inference latency.
+
+The rest of this paper is organized as follows. Section~\ref{sec:related_wks}
+reviews related work, Section~\ref{sec:firewall_arch} presents the
+proposed architecture, Section~\ref{sec:setup} describes the
+experimental setup, and Section~\ref{sec:results} presents the results. The limitations and future work are discussed in Section~\ref{sec:limitation_future} and lastly,
+Section~\ref{sec:conclusion} concludes the paper.
+% ====================================================================
+% II. RELATED WORK
+% ====================================================================
+\section{Related Work}\label{sec:related_wks}
+Recent work on securing LLM applications falls into three broad categories: safety classifiers, adversarial robustness research, and guardrail frameworks. Llama Guard~\cite{llamaguard} and PromptGuard~\cite{promptguard} represent the first category, scanning inputs with a learned model. However, this generalizes poorly to attacks outside the training distribution and adds inference overhead. The second category outlines the numerous examples by which safety-aligned models continue to exhibit a lack of reliability. Zou et al.~\cite{zou2023universal} found that GCG-optimized adversarial suffixes transfer across model families, and AutoDAN~\cite{autodan} used genetic search to craft natural-sounding jailbreak prompts. PAIR~\cite{pair} automated attacks through repeated refinement, and Greshake et al.~\cite{greshake2023indirect} showed that hidden instructions in outside content can hijack LLM-integrated applications. PromptBench~\cite{promptbench} responds with a systematic robustness benchmark, while SmoothLLM~\cite{smoothllm} responds with a perturbation-based defense.
+
+The third group mentions defenses for the application layer.\\NeMo Guardrails~\cite{nemoguardrails} enforces conversational policy through programmable rules, though rule-based systems demand continual upkeep as attackers invent new injection techniques. Rebuff~\cite{rebuff} takes a similar hybrid approach, combining heuristic detectors, LLM-based verification, and a vector database of previously seen attacks\rev{, together with canary tokens inserted into the prompt to reveal leakage of the system prompt; by default, every request is scored by all of these checks}. \rev{Semantic Firewall differs in running eight detectors in parallel (covering PII, secrets, and context flooding as well as injection), in gating LLM calls and cache write-back on confidence with an administrator allowlist, in separating detection from configurable policy, and in resolving each prompt at the earliest stage that can decide it instead of scoring every request with every check.} \rev{A complementary line of work hardens the model or the application itself: the instruction hierarchy~\cite{wallace2024hierarchy} trains models to give privileged instructions precedence, StruQ~\cite{chen2025struq} and SecAlign~\cite{chen2024secalign} fine-tune models to ignore instructions embedded in data, and CaMeL~\cite{debenedetti2025camel} separates control flow from untrusted data so that injected text cannot change what an agent executes. These defenses require changing the protected model or application, whereas Semantic Firewall is an external filter in front of an unmodified model and can be combined with them.} Collectively, these three categories of work lead to the same conclusion that no single mechanism is sufficient, and LLM security necessitates layered defenses constructed from complementary detection strategies. Closing this gap is precisely what Semantic Firewall offers.
+% ====================================================================
+% III. SYSTEM ARCHITECTURE
+% ====================================================================
+% ── Figure placed here so it renders at top of page 2/3 ──
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.76\textwidth]{ICISS_Springer_Submission/SF2.png}
+    \caption{Multi-agent Semantic Firewall architecture with semantic memory, parallel security agents, and policy-driven decisions. Circled numbers indicate the request path referenced throughout Section~\ref{sec:firewall_arch}. \protect\rev{The mesh contains the eight detectors of Table~\ref{tab:detectors}: six fast/deterministic and two LLM-assisted.}}
+    \label{fig:semantic_firewall_architecture}
+    \vspace{-5mm}
+\end{figure}
+\section{Semantic Firewall Architecture}\label{sec:firewall_arch}
+The proposed semantic firewall follows a layered pipeline that separates request validation, semantic memory, threat detection, and policy-driven decision-making. As shown in Fig.~\ref{fig:semantic_firewall_architecture}, incoming prompts pass through progressively deeper analysis stages, numbered \ding{202}--\ding{207} in the figure and referenced by the same numbers in the subsections below.
+
+The architecture follows an early-exit strategy. Once a prompt is resolved with sufficient confidence, downstream processing is skipped, reducing unnecessary computation and LLM inference. This confidence is formalized through two thresholds: the similarity threshold 
+$\tau$ (Eq.~\eqref{eq:cosine}) at the semantic-memory stage and the \rev{ensemble} threshold $\theta$ (Algorithm~\ref{alg:firewall}) at the detector-mesh stage. Unresolved prompts escalate in stages, i.e., first to semantic retrieval, then to a parallel ensemble of specialized detectors, and finally to a deterministic Llama-3.3-70B gate that returns a structured verdict. Newly confirmed threats are written back into \rev{the} semantic cache so that future, semantically similar variants are resolved at the lightweight layer without repeated LLM inference, allowing the system's detection boundary to harden with exposure rather than requiring manual rule updates or retraining.
+
+\subsection{Entry Layer and Initial Screening (Step \ding{202})}
+Incoming requests are first rate-limited and validated against the
+expected schema. Malformed inputs and excessive requests are rejected before entering the detection pipeline. A lightweight regex engine then scans for known attack patterns, including instruction overrides, encoded payloads, jailbreak prefixes, and token-smuggling attempts. The engine runs on the CPU with an average latency of \rev{$10.3$\,ms} and immediately blocks matching prompts before more expensive analysis is performed\rev{; in the implementation it runs alongside the deterministic detectors, after the semantic-memory lookup (Algorithm~\ref{alg:firewall})}.
+
+\subsection{Semantic Control Plane and Memory (Step \ding{203})}
+The Semantic Control Plane orchestrates context-aware detection and policy enforcement and acts as the primary cost gate for LLM inference: fast, low-cost checks run first, and the constrained LLM gate (Section~\ref{sec:llm_gate}) is invoked only when they leave a prompt's status ambiguous. Four modules implement this orchestration. The \emph{Session Judge} maintains a sliding window over recent conversation turns and computes an escalating threat trajectory across them, rather than scoring each prompt in isolation\rev{; it also compares the conversation so far with a semantic memory of known multi-turn attacks, analogous to the threat cache}. This is designed to counter multi-turn jailbreaks such as Crescendo~\cite{russinovich2024crescendo}, in which an attacker builds conversational trust over several benign-looking turns before injecting a harmful payload on a later one. The \emph{Risk Scorer} aggregates the continuous confidence values reported by each detector, rather than treating their outputs as binary safe/unsafe decisions, weighting each by severity to produce the unified risk score formalized in Section~\ref{sec:risk_agg}. The \emph{Policy Engine} maps \rev{detector outputs} onto configurable deployment profiles (e.g., \textit{Strict}, \textit{Balanced}, \textit{Developer}), so that, for instance, a healthcare application can enforce stringent PII filtering while an internal developer tool applies more permissive rules, without requiring changes to the underlying detectors. Finally, the \emph{Explainability Module} addresses the opacity problem raised in Section~\ref{sec:intro}; rather than returning an unexplained rejection, it aggregates the specific rules, detector scores, and evidence that triggered a decision into a structured, human-readable report, supporting both auditing and the resolution of false positives.
+
+Semantic memory maintains separate stores for known threats and
+administrator-approved prompts. Each prompt is encoded as a
+384-dimensional vector using Sentence-Transformers~\cite{reimers2019sbert} and searched against a ChromaDB~\cite{chromadb} Hierarchical Navigable Small World (HNSW) graph
+index~\cite{malkov2020hnsw}. Similarity between an incoming prompt
+$\vec{v}_q$ and a cached threat $\vec{v}_c$ is computed as
+
+\begin{equation}
+\operatorname{sim}(\vec{v}_q,\vec{v}_c)=
+\frac{\vec{v}_q\cdot\vec{v}_c}
+{\|\vec{v}_q\|_2\|\vec{v}_c\|_2}.
+\label{eq:cosine}
+\end{equation}
+
+The highest similarity score is given by
+
+\begin{equation}
+s^{*}=\max_{\vec{v}_c\in\mathcal{C}}
+\operatorname{sim}(\vec{v}_q,\vec{v}_c),
+\end{equation}
+
+where $\mathcal{C}$ denotes the threat cache. A prompt is blocked when $s^{*}\geq\tau$. We set \rev{$\tau=0.65$} based on a sweep over the validation \rev{split} (Section~\ref{sec:results}, Table~\ref{tab:cache}), which shows this value maximizes F1; the full sensitivity analysis is reported in Section~\ref{sec:results}.
+
+The semantic memory is updated \rev{on both of its sides, the threat cache and the allowlist, and stores only previously seen malicious prompts and administrator-approved prompts.} When downstream analysis confirms a novel attack, its embedding is added to the threat cache. \rev{Only LLM-confirmed detections with confidence $\geq 0.85$ are written, and the cache keeps at most 10{,}000 entries, evicting the oldest first.} \rev{Growth does not slow the lookup: a nearest-neighbour query (without the embedding) takes 31, 20 and 19\,ms on average with 1{,}000, 5{,}000 and 20{,}000 entries, so the cap bounds storage rather than latency, and with a cap of 500, inserting 2{,}000 entries leaves exactly 500. In our experiments the cache never holds more than about 2{,}700 entries, so no entry is evicted.} Consequently, a subsequent prompt that rephrases the same intent, for instance, following up a blocked request such as ``Give me your secret instructions'' with a paraphrase such as ``Provide your hidden system prompt'' is then recognized by similarity rather than by exact string match. Therefore, such prompts get blocked immediately without re-invoking the parallel detectors or the LLM gate. Conversely, if the pipeline flags a legitimate but unusually phrased prompt as a false positive, an administrator can approve it once; its embedding is then added to the allowlist so that future prompts of similar intent \rev{(cosine similarity $\geq 0.90$) skip the LLM Gate, while the deterministic detectors still run}. This closes the loop in both directions: repeated attacks become cheaper to block over time, and repeated false positives become cheaper to correct, without manual rule updates or retraining.
+
+\subsection{Parallel Agent Execution Mesh (Step \ding{204})}\label{sec:mesh}
+Prompts unresolved by the initial screening and semantic memory stages are routed to a set of eight specialized security agents, summarized in Table~\ref{tab:detectors}. The architecture executes these agents concurrently with individual timeout budgets. For detector execution times $T_1,\ldots,\revm{T_8}$, the idealized ensemble latency is
+\begin{equation}
+T_{\mathrm{mesh}} \approx \revm{\displaystyle\max_{1\leq i\leq 8}}T_i + T_{\mathrm{ovh}},
+\label{eq:parallel_latency}
+\end{equation}
+where $T_{\mathrm{ovh}}$ represents thread scheduling, communication, and aggregation overhead.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\caption{The eight specialized security agents in the Parallel Agent Execution Mesh.}
+\label{tab:detectors}
+\begin{tabular}{@{}llp{5.4cm}@{}}
+\toprule
+\textbf{Detector} & \textbf{Category} & \textbf{Function} \\
+\midrule
+PII Detector & Fast / deterministic & Identifies sensitive identifiers (emails, phone numbers, IDs) using pattern-based rules. \\
+Secrets Detector & Fast / deterministic & \rev{Uses signature matching to flag API keys, tokens, and credentials.} \\
+Abuse Detector & Fast / deterministic & \rev{Flags repetition, low-entropy input, homoglyphs, and encoded payloads.} \\
+Threat Intel Detector & Fast / deterministic & Matches prompts against a signature feed of previously observed threats. \\
+Custom Rules Detector & Fast / deterministic & Evaluates workspace-specific regex and policy rules. \\
+Injection Detector & LLM-assisted & Combines regex screening \rev{(with Levenshtein repair of obfuscated keywords)} with the LLM Gate to catch jailbreak and prompt-injection attempts. \\
+Unsafe Content Detector & LLM-assisted & Combines regex screening with the LLM Gate to flag unsafe or policy-violating content. \\
+Context Flooding Detector & \rev{Fast / deterministic} & Checks for context/token-flooding attacks against a configurable length budget (e.g., 4K characters). \\
+\bottomrule
+\end{tabular}
+\vspace{-5mm}
+\end{table}
+The deterministic agents cover complementary threat categories. The PII Detector identifies sensitive identifiers using pattern-based rules. The Secrets Detector \rev{uses signature matching to detect API keys, tokens, and other credentials. The Abuse Detector uses Shannon entropy to flag highly repetitive input}. For a candidate string $X$ of length $n$, its entropy is defined as~\cite{Shannon}
+\begin{equation}
+H(X)=-\revm{\displaystyle\sum_{c\in\Sigma_X}p(c)\log_2 p(c)},
+\label{eq:entropy}
+\end{equation}
+where \rev{$\Sigma_X$ is the set of distinct characters in $X$ and $p(c)=n_c/n$ is the empirical probability of character $c$, which occurs $n_c$ times in $X$.} \rev{The check is applied only to inputs of at least 50 characters and flags those with $H(X)<2.5$ bits.} The \rev{Injection} Detector identifies lexical obfuscations using approximate string matching based on the Levenshtein distance. For strings $a$ and $b$, let $d_{a,b}(i,j)$ denote the minimum edit distance between the prefixes $a_{1:i}$ and $b_{1:j}$. The distance is recursively defined as ~\cite{Levenshtein_recursive},
+\begin{equation}
+d_{a,b}(i,j)=
+\begin{cases}
+\max(i,j), & \revm{\text{if } \min(i,j)=0},\\
+\min
+\begin{cases}
+d_{a,b}(i-1,j)+1,\\
+d_{a,b}(i,j-1)+1,\\
+d_{a,b}(i-1,j-1)+\delta_{ij},
+\end{cases}
+& \text{otherwise},
+\end{cases}
+\label{eq:levenshtein}
+\end{equation}
+
+where $\delta_{ij}=\mathbb{I}(a_i\neq b_j)$ denotes the indicator function. The three terms correspond to deletion, insertion, and substitution operations, respectively. Smaller Levenshtein distances indicate greater lexical similarity, enabling the detector to identify obfuscated variants of \rev{the keywords in its regex patterns. The repair is enabled in all reported results; on ordinary neuralchemy prompts it changes only 2 of the 941 validation predictions, but when one typo is inserted per keyword it raises regex detection of the 62 test attacks that the regex catches without typos from 33.9\% to 80.1\%.} The remaining agents (Threat Intel, Custom Rules, Injection, and Unsafe Content Detectors in Table~\ref{tab:detectors}) perform threat-intelligence matching, workspace-specific rule evaluation, injection detection, and unsafe-content analysis, respectively. Injection and unsafe-content detectors may invoke the LLM Gate when deterministic evidence is insufficient. This organization allows inexpensive agents to resolve common threats while reserving model-based reasoning for ambiguous inputs.
+
+\subsection{Constrained LLM Gate (invoked within Step \ding{204})}\label{sec:llm_gate}
+
+Prompts that remain unresolved after deterministic analysis and semantic lookup are evaluated by the LLM Gate. The current implementation uses Llama-3.3-70B-Instruct through \rev{OpenRouter}. The model is instructed to return a schema-constrained \rev{JSON} decision containing \rev{a binary verdict, the attack type, a confidence value, the supporting evidence, and an overall risk level}. Greedy decoding \rev{(temperature 0)} is used to reduce output variability and support reproducible evaluation.
+
+When the LLM Gate identifies a novel attack, the corresponding prompt embedding is inserted into the threat cache. This feedback path allows subsequent semantic variants to be resolved without repeated LLM inference. If the external LLM service is unavailable, the firewall applies the configured fallback policy \rev{(by default \textsc{Flag})} rather than silently bypassing security checks.
+
+\subsection{Risk Aggregation and Policy Enforcement (Step \ding{205})}\label{sec:risk_agg}
+The agent mesh produces detector decisions, confidence values, matched patterns, and severity indicators. These heterogeneous outputs\rev{, the set of detector results $\mathcal{R}$,} are combined into a continuous risk score:
+\begin{equation}
+\operatorname{Risk}(\mathcal{R})
+=
+\min
+\left(
+100,\,
+S_{\mathrm{sev}}
++
+S_{\mathrm{conf}}
++
+S_{\mathrm{pat}}
++
+S_{\mathrm{ses}}
+\right).
+\label{eq:risk}
+\end{equation}
+The risk score is calculated by combining the highest detected threat severity $S_{\mathrm{sev}}$, confidence-weighted evidence $S_{\mathrm{conf}}$ from triggered detectors, agreement across detectors $S_{\mathrm{pat}}$, and $S_{\mathrm{ses}}$ risk accumulated during the current session. Severity receives the largest fixed base value (0--85), confidence contributes up to 30 points, detector agreement adds 5 points per trigger (up to a maximum of 20), and session history accounts for up to 10. These heuristic weights prioritize serious threats while allowing strong evidence, consensus, and repeated suspicious activity to increase borderline scores; the final score is capped at 100. \rev{This score is used for explanations and session tracking; blocking uses the policy actions of the triggered detectors $\mathcal{T}\subseteq\mathcal{R}$ and the ensemble score}
+\begin{equation}
+\revm{\displaystyle E(\mathcal{R})=\sum_{a\in\mathcal{T}}w_a\,p_a\,\frac{\max(1,s_a)}{2},}
+\label{eq:ensemble}
+\end{equation}
+\rev{where $w_a$, $p_a$, and $s_a$ are the weight, calibrated confidence, and severity rank (0--4) of detector $a$. A prompt is blocked if a policy action is \textsc{Block} or $E(\mathcal{R})\geq\theta=3.5$. The detector weights (1.0--1.3, highest for the injection and unsafe-content detectors) and the risk-score points were set by hand during development and were not tuned on any evaluation split; sweeping $\theta$ from 2.0 to 6.0 left validation F1 unchanged (Section~\ref{sec:results}).}
+
+\rev{Detector outputs are} evaluated by the Policy Engine using configurable security profiles and thresholds. This separation allows the same detection pipeline to support different deployment requirements without modifying individual detectors. High-confidence critical findings may trigger immediate blocking, while intermediate-risk requests can be flagged, redacted, or forwarded for human review.
+
+\begin{algorithm}[t]
+\caption{Semantic Firewall Classification Pipeline}
+\label{alg:firewall}
+\begin{algorithmic}[1]
+\Require Prompt $q$\rev{, optional session $\sigma$}, similarity threshold $\tau$, \rev{ensemble} threshold
+$\theta$, threat cache $\mathcal{C}$, \rev{allowlist $\mathcal{A}$,} detector set
+$\mathcal{D}=\{D_1,\ldots,D_8\}$ \rev{(LLM-assisted: Injection, Unsafe Content)}
+\Ensure Decision $d \in \{\textsc{Allow},\revm{\textsc{Flag},\textsc{Redact},}\textsc{Block}\}$
+
+\State $\vec{v}_q \leftarrow \textsc{Embed}(q)$
+\State \rev{$a_{\mathcal{A}} \leftarrow$ \textsc{AllowlistMatch}$(\vec{v}_q,\mathcal{A})$} \Comment{\rev{admin-approved prompts}}
+\State $s^{*} \leftarrow
+    \displaystyle\max_{\vec{v}_c \in \mathcal{C}}
+    \frac{\vec{v}_q \cdot \vec{v}_c}
+    {\|\vec{v}_q\|_2\|\vec{v}_c\|_2}$
+\If{$s^{*} \geq \tau$ \rev{$\land\, \lnot a_{\mathcal{A}}$}}
+    \State \rev{$\mathcal{R} \leftarrow$ \{cached threat\}} \Comment{\rev{LLM skipped}}
+\Else
+    \State $\mathcal{R} \leftarrow
+    \textsc{ParallelExecute}(\mathcal{D},q)$ \Comment{\rev{regex pre-screen only, no LLM}}
+    \If{\rev{$\lnot a_{\mathcal{A}} \,\land\, \textsc{PolicyAction}(\mathcal{R})\neq\textsc{Block}$}}
+        \State \rev{$\mathcal{R} \leftarrow \mathcal{R}\,\oplus\,$\textsc{LLMDetect}$(q)$} \Comment{\rev{JSON; failure $\Rightarrow$ \textsc{Flag}}}
+    \EndIf
+\EndIf
+\State $\revm{e \leftarrow E(\mathcal{R})}$
+\State \rev{$d \leftarrow \textsc{PolicyAction}(\mathcal{R})$}
+\If{$\revm{e \geq \theta}$}
+    \State \rev{$d \leftarrow \textsc{Block}$} \Comment{\rev{lower bands of $e$ raise $d$ to \textsc{Flag}/\textsc{Redact}}}
+\EndIf
+\If{\rev{$\sigma$ given}}
+    \State \rev{$d \leftarrow$ \textsc{SessionJudge}$(\sigma,q,d)$} \Comment{\rev{conversation check and memory}}
+\EndIf
+\If{\rev{$d=\textsc{Redact}$}}
+    \State \rev{$q \leftarrow$ \textsc{Mask}$(q,\mathcal{R})$}
+\EndIf
+\If{\rev{an LLM detector confirms a threat in $\mathcal{R}$}}
+    \State $\mathcal{C} \leftarrow
+    \mathcal{C}\cup\{\vec{v}_q\}$
+    \Comment{Update threat cache}
+\EndIf
+\State \Return \rev{$d$}
+
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Decision, Governance, and Storage (Steps \ding{206}--\ding{207})}
+The final layer converts the accumulated security evidence into one of four actions: \textsc{Allow}, \textsc{Flag}, \textsc{Redact}, or \textsc{Block}. Sensitive entities and secrets detected in otherwise legitimate prompts may be masked before the request is forwarded to the target LLM. Each transaction is recorded by the Audit Logger, including payload hashes, detector outcomes, risk scores, processing latency, and final decisions. Ambiguous or policy-sensitive cases may be forwarded to a human review queue. Analyst decisions can subsequently update the allowlist, threat cache, or policy configuration. High-risk events may additionally generate asynchronous notifications through external alerting channels.
+\subsection{Classification Procedure}
+
+Algorithm~\ref{alg:firewall} summarizes the core classification pipeline of Semantic Firewall. Each prompt is first \rev{checked against the allowlist and} compared with previously detected threats in the semantic cache. Prompts that remain unresolved are analyzed by eight detectors running in parallel\rev{, the two LLM-assisted ones initially by their regex pre-screen only}. Only prompts \rev{that these checks do not block} reach the constrained LLM Gate\rev{; all detector outputs are then aggregated into a risk score, and a failed LLM call yields \textsc{Flag} rather than \textsc{Allow}}. When the LLM Gate identifies a novel attack, its embedding is added to the threat cache, allowing similar inputs to be detected earlier in subsequent requests. This early-exit design limits unnecessary computation while enabling the firewall to adapt to newly observed threats.
+
+\subsection{Effective Latency}
+Because prompts may terminate at different stages, end-to-end latency depends on the fraction of requests resolved by each path. Let $P_h$, $P_c$, $P_m$, and $P_l$ denote the probabilities that a prompt is resolved by initial screening, semantic memory, the parallel agent mesh, or the LLM Gate, respectively. The expected latency can be expressed as,
+\begin{equation}
+L_{\mathrm{eff}}
+=
+P_hL_h
++
+P_cL_c
++
+P_mL_m
++
+P_lL_l,\qquad
+\revm{\textstyle\sum_{k\in\{h,c,m,l\}}P_k=1},
+\label{eq:effective_latency}
+\end{equation}
+where $L_h$, $L_c$, $L_m$, and $L_l$ are the corresponding mean path latencies. This formulation reflects the architecture more accurately than treating total latency as the sum of all component execution times.
+
+
+\subsection{\texorpdfstring{\protect\rev{Threat Model}}{Threat Model}}
+\label{sec:threat-model}
+
+\paragraph{\protect\rev{System and assets.}}
+\rev{The firewall sits between untrusted users and a protected LLM application. The assets are the integrity of the downstream model's behavior, the availability of the service to benign users, the firewall's persistent state (the threat cache and the allowlist), and the confidentiality of user prompts.}
+
+\paragraph{\protect\rev{Adversary goals.}}
+\rev{\textbf{G1 (evasion):} deliver a prompt-injection or jailbreak payload to the protected model without being blocked. \textbf{G2 (cache poisoning):} cause a wrong block decision to be persisted, so that similar benign prompts are rejected later. \textbf{G3 (allowlist abuse):} craft a malicious prompt close enough to an approved prompt to inherit its allow decision and skip the LLM gate.}
+
+\paragraph{\protect\rev{Adversary knowledge and capabilities.}}
+\rev{A \textbf{black-box} attacker ($\mathcal{A}_1$) observes only the final verdict. A \textbf{pipeline-aware} attacker ($\mathcal{A}_2$) also knows the architecture, the detectors, the embedding model, the similarity threshold $\tau$, the gate's system prompt and the cache write-back rules, but not the contents of the cache or the allowlist. Both can submit arbitrary text prompts, adapt them using the verdicts returned, and operate several client identities within a query budget. Neither can write to the cache or the allowlist directly, nor modify the firewall's configuration or models; the cache can be influenced only through the automatic write-back of gate verdicts, and the Session Judge's memory of multi-turn attacks is never written online.}
+
+\paragraph{\protect\rev{Trust assumptions.}}
+\rev{The operator is trusted and curates the allowlist and the benign reference set, and the host is uncompromised. The third-party LLM provider is honest but curious: it returns correct completions but may retain the prompts it receives.}
+
+\paragraph{\protect\rev{Out of scope.}}
+\rev{Indirect injection through retrieved documents or tool outputs, attacks on the protected model's outputs, training-time poisoning, timing side channels, and volumetric denial of service.}
+
+\paragraph{\protect\rev{Coverage in this paper.}}
+\rev{This section summarizes which threats are evaluated. For G1, Section~\ref{sec:results} measures detection of static attack datasets by the black-box attacker: prompt injections from neuralchemy and deepset, out-of-distribution attacks (OOD-500), multi-turn jailbreaks, test prompts unlike any cached attack, and, in Section~\ref{sec:mesh}, keywords obfuscated with typos. For G2, Section~\ref{sec:cache-eval} measures how gate false positives propagate through the cache without any attacker and what the poisoning-resistant cache design costs on normal traffic. Four threats remain unevaluated: a deliberate poisoning campaign (G2), including by a pipeline-aware attacker who knows the write-back rules, and how much the poisoning-resistant cache design reduces it; evasion by an attacker who adapts inputs to the detectors or uses optimization against an open-weight gate; injection addressed to the LLM gate itself; and near-allowlist inputs optimized by a pipeline-aware attacker (G3; a black-box test of G3 is reported in Section~\ref{sec:security}). We discuss these in Section~\ref{sec:security} and leave their evaluation to future work. The detection results should therefore be read as performance against known, non-adaptive attacks.}
+
+\subsection{Security Considerations}\label{sec:security}
+The detection stages are not assumed to fail independently, as a
+carefully obfuscated attack may evade multiple detectors at the same
+time. The architecture therefore combines complementary detection
+mechanisms so that weaknesses in one stage can be addressed by
+evidence from others. \rev{The LLM Gate itself reads attacker-controlled text and may be manipulated by it. Its output is constrained to a fixed JSON schema, and the final action is the most severe action of all detectors, so a manipulated gate cannot undo a block issued by the semantic cache or the deterministic detectors, which run before it; it can, however, fail to report a novel attack that only it would have caught.}
+
+Detection is also separated from policy enforcement. Outputs from the
+security agents are aggregated into a risk score, while configurable
+policies determine whether a prompt is allowed, flagged, redacted, or
+blocked. This separation allows the same detection pipeline to support
+different security requirements without modifying the underlying
+detectors.
+
+\rev{Users cannot write to the allowlist; only the operator adds approved prompts. In a black-box test of G3, we appended injection payloads to 100 approved prompts: only 4 remained within the allowlist threshold (median similarity 0.70), and in the default mode, in which an allowlist hit skips only the LLM Gate, the deterministic detectors still ran and none of the 4 was allowed, whereas the optional bypass mode would have allowed all 4.}
+
+\paragraph{\protect\rev{Poisoning-resistant cache design.}}
+\rev{Cache poisoning is possible because a single unverified gate verdict becomes a persistent decision over a whole neighborhood of prompts. We therefore propose four changes to the write-back path that address prevention, containment, and recovery. First, a \emph{benign-overlap check} compares each candidate entry against the allowlist and a reference set of known benign prompts, and rejects the write if the entry would cover any of them; this is designed to prevent the most damaging outcome, in which a legitimate use case becomes blocked. Second, automatically added entries enter a \emph{probationary tier} that is matched at a stricter similarity threshold $\tau'>\tau$, so a new entry still catches replays of the same attack but cannot block a wide region of embedding space; entries are promoted to the trusted tier only after repeated independent detections or operator review. Third, probationary entries carry a \emph{time-to-live} (TTL) that is renewed only on reconfirmation, which bounds how long any erroneous entry can persist. Fourth, a small fraction of the cache hits on automatically added entries is \emph{re-validated} by the full pipeline, including the LLM gate, and an entry is evicted when the pipeline no longer agrees with it, so that poisoned entries can be removed without operator intervention. Together these measures mean that an attacker must cause repeated, high-confidence gate errors on prompts that are far from all known benign traffic, and must keep doing so to sustain the effect. They do not prevent the gate's initial false positive, only its propagation, and they reduce the cache hit rate and thus increase gate calls. The four measures are implemented as options of the cache, are off in all other experiments, and are evaluated in Section~\ref{sec:cache-eval}.}
+% ====================================================================
+% IV. EXPERIMENTAL SETUP
+% ====================================================================
+\section{Experimental Setup} \label{sec:setup}
+The evaluation uses five public benchmarks selected to cover different security challenges. The \textit{neuralchemy/Prompt-injection-dataset}~\cite{neuralchemy} serves as the primary benchmark \rev{with its official splits: the 2,650 attacks of the training split (4,391 prompts) only seed the semantic cache, the validation split (941) is used to select thresholds, and all reported results use the test split ($N=942$; 552 attacks, 390 benign prompts)}.
+The \textit{ai4privacy/pii-masking-200k} dataset~\cite{ai4privacy} ($N=209{,}261$) is used to evaluate PII detection at scale on multilingual data.\\
+\rev{Multi-turn detection is assessed on 200 held-out conversations: 100 multi-turn jailbreaks from \textit{SafeMTData}~\cite{safemtdata} and 100 benign multi-turn conversations from \textit{no\_robots}~\cite{norobots}; a separate development part of 50 attack and 50 benign conversations is used to select the threshold of the Session Judge's memory (0.60).} \\
+The \textit{PKU-Alignment/BeaverTails}~\cite{beavertails} benchmark
+(\rev{$N=1{,}000$, a seeded sample of its test split}) evaluates safety classification across 14 harm categories, including ambiguous and borderline prompts. Finally, \textit{deepset/prompt-injections}~\cite{deepset} \rev{($N=662$)}, \rev{a public benchmark on which} \textit{Rebuff}~\cite{rebuff} \rev{has been independently evaluated~\cite{palit2025}}, is used to assess performance on a benchmark
+designed specifically for prompt-injection detection. \rev{For the per-detector ablation, we also build MIXED-1000, which adds inputs for every detector to neuralchemy test prompts (Section~\ref{sec:results}) and is released with the code.}
+
+\rev{The benign test split (500 prompts)} of
+\textit{HuggingFaceH4/no\_robots}~\cite{norobots} \rev{is used} for measuring false positives. System thresholds, including the semantic similarity threshold $\tau$ \rev{and the ensemble threshold $\theta$, are selected on the neuralchemy validation split; the test split is evaluated once}. \rev{\textit{Cache protocols.} In the warm protocol, the threat cache is initialised with the embeddings of the 2,650 training-split attacks, $\mathcal{C}_0=\{\vec{v}(x): x\in D_{\mathrm{train}},\, y(x)=1\}$, where $\vec{v}(x)$ is the embedding of prompt $x$, $D_{\mathrm{train}}$ the training split and $y(x)=1$ its attack label, and write-back is disabled, so the cache does not change during evaluation and no validation or test prompt ever enters it. A prompt $q$ is then blocked by the cache when $s^{*}(q)\geq\tau$ and otherwise follows exactly the path it takes without a cache, whose decision is $\hat{y}_{\mathrm{none}}(q)$ ($\hat{y}=1$: blocked):}
+\begin{equation}
+\revm{\hat{y}_{\mathrm{warm}}(q)=\begin{cases}1, & s^{*}(q)\geq\tau,\\ \hat{y}_{\mathrm{none}}(q), & \text{otherwise}.\end{cases}}
+\label{eq:warm}
+\end{equation}
+\rev{In the cold protocol (C9), the cache starts empty and LLM-confirmed attacks with confidence $\geq0.85$ are written back while the test prompts are processed in their dataset order. The official splits share no prompt, so the warm cache contains no test prompt; Section~\ref{sec:results} also reports results on the test prompts that are dissimilar to every cached attack.} The implementation will be made publicly available upon publication (link withheld for double-blind review). 
+\subsection{Implementation, Baselines, and Evaluation Metrics}
+Experiments were conducted on \rev{a laptop with an Intel Core Ultra~5 125H CPU (18 logical cores) and 16\,GB of RAM}. Semantic memory was implemented using
+ChromaDB~\cite{chromadb} with HNSW indexing~\cite{malkov2020hnsw},
+while prompt embeddings were generated using \\Sentence-Transformers~\cite{reimers2019sbert}. The LLM Gate used
+Llama-3.3-70B-Instruct through OpenRouter with deterministic decoding
+(\rev{temperature 0}). 
+
+The evaluation includes GPT-4o~\cite{gpt4o}, \rev{Claude Haiku~4.5~\cite{claudehaiku45}}, Gemini~2.5 Flash~\cite{gemini25},
+and Llama Guard~4~\cite{llamaguard4} as baselines. \rev{The three proprietary} models were evaluated
+zero-shot without task-specific prompt tuning, representing an
+out-of-the-box deployment setting.\footnote{\scriptsize\textsubscript{\rev{OpenRouter model IDs (queried October 2026):} \texttt{\rev{openai/gpt-4o}},
+\texttt{\rev{anthropic/claude-haiku-4.5}}, and
+\texttt{\rev{google/gemini-2.5-flash}}.}}
+As these models are not specifically designed for binary
+prompt-injection classification, their results are reported under this
+evaluation setting. Llama Guard~4 was also evaluated zero-shot for
+structural prompt-injection detection. \rev{Two purpose-built prompt-injection classifiers, ProtectAI's DeBERTa-v3~\cite{protectaideberta} and PIGuard~\cite{injecguard} (the renamed InjecGuard model), were run locally with their default labels; Meta's Prompt Guard~2 (86M) was queried through the Groq API; a prompt counts as an injection when its score exceeds 0.5, and prompts longer than the model's 512-token window are split into parts and the highest score is used. The zero-shot prompt asks the model to label the user message as \emph{injection} (text that tries to override, ignore or reveal the system instructions, adopt an unrestricted persona, or smuggle instructions through encodings, delimiters or hypothetical framing) or \emph{benign} (ordinary questions, creative requests and discussions about security), and to reply in JSON.}
+
+Performance is reported using Precision, Recall, F1 score, and False
+Positive Rate (FPR)\rev{, with attacks as the positive class: Precision $=\mathit{TP}/(\mathit{TP}+\mathit{FP})$, Recall $=\mathit{TP}/(\mathit{TP}+\mathit{FN})$, F1 is their harmonic mean, and FPR $=\mathit{FP}/(\mathit{FP}+\mathit{TN})$, the share of benign prompts that are flagged}. Pairwise differences in classification outcomes
+are tested for statistical significance using McNemar's
+test~\cite{McNemar}\rev{, which compares the prompts on which only one of two systems is correct and is reported as the $\chi^2$ statistic and its $p$-value; $p$-values over several baselines are adjusted with the Holm--Bonferroni correction}. Effective latency and \rev{LLM-call rates, which determine the API cost,} are also
+reported to assess the practical efficiency of the system\rev{; besides the mean, latency is given as the median (p50) and the 95th and 99th percentiles (p95, p99), the times within which 50\%, 95\% and 99\% of the requests complete}.
+\section{Results}\label{sec:results}
+
+To evaluate Semantic Firewall, we conduct four sets of experiments: baseline comparisons against \rev{eight} representative systems, \rev{cross-dataset and related-task evaluations}, specialized evaluations of individual system components, and a sensitivity analysis over the semantic-cache threshold 
+$\tau$. We further \rev{evaluate cache write-back and its safeguards, and} perform an ablation study isolating the contribution of each architectural component. Tables~\ref{tab:baselines}\rev{--\ref{tab:prevalence}} present the full results, analyzed in detail in the following subsections.
+% ── TABLE 1: Baselines + Cross-Dataset + Specialized ──
+\begin{table}[t]
+\centering
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llrcccccl@{}}
+\toprule
+\textbf{Benchmark} & \textbf{Model / Config}
+    & \textbf{$N$} & \textbf{Prec.} & \textbf{Recall}
+    & \textbf{F1} & \rev{\textbf{FPR}} & \textbf{Latency} & \textbf{Notes} \\
+\midrule
+\multicolumn{9}{@{}l}{\textit{(a) Open-Weight vs. Proprietary API
+    Comparison (neuralchemy \rev{test split}, $N{=}\revm{942}$)}} \\
+\midrule
+neuralchemy & \textbf{Semantic Firewall (Ours, Warm)}
+    & \rev{942} & \rev{94.22} & \rev{\textbf{97.46}} & \rev{\textbf{95.81}} & \rev{8.46}
+    & \rev{304\,ms} & Steady-state \\
+neuralchemy & Semantic Firewall (Ours, Cold)
+    & \rev{942} & \rev{95.71} & \rev{92.93} & \rev{94.30} & \rev{5.90}
+    & \rev{---} & Empty cache \\
+neuralchemy & OpenAI GPT-4o
+    & \rev{942} & \rev{96.98} & \rev{81.52} & \rev{88.58} & \rev{3.59}
+    & \rev{1109\,ms} & Proprietary \\
+neuralchemy & Google Gemini 2.5 Flash
+    & \rev{942} & \rev{96.96} & \rev{80.98} & \rev{88.25} & \rev{3.59}
+    & \rev{985\,ms} & Proprietary \\
+neuralchemy & \rev{Anthropic Claude Haiku 4.5}
+    & \rev{942} & \rev{97.01} & \rev{70.65} & \rev{81.76} & \rev{3.08}
+    & \rev{1885\,ms} & Proprietary \\
+\rev{neuralchemy} & \rev{ProtectAI DeBERTa-v3}
+    & \rev{942} & \rev{\textbf{97.75}} & \rev{86.41} & \rev{91.73} & \rev{\textbf{2.82}}
+    & \rev{425\,ms} & \rev{Classifier} \\
+\rev{neuralchemy} & \rev{Prompt Guard 2 (86M)}
+    & \rev{942} & \rev{95.28} & \rev{54.89} & \rev{69.66} & \rev{3.85}
+    & \rev{189\,ms} & \rev{Classifier (API)} \\
+\rev{neuralchemy} & \rev{Llama Guard 4 (12B)}
+    & \rev{942} & \rev{92.49} & \rev{35.69} & \rev{51.50} & \rev{4.10}
+    & \rev{717\,ms} & \rev{Open-weight} \\
+\rev{neuralchemy} & \rev{PIGuard (InjecGuard)}
+    & \rev{942} & \rev{83.84} & \rev{79.89} & \rev{81.82} & \rev{21.79}
+    & \rev{345\,ms} & \rev{Classifier} \\
+\midrule
+\multicolumn{9}{@{}l}{\textit{(b) Cross-Dataset \rev{and Related-Task Evaluation}}} \\
+\midrule
+BeaverTails
+    & \textbf{Semantic Firewall}
+    & \rev{1000} & \rev{69.50} & \rev{\textbf{76.75}} & \rev{\textbf{72.95}} & \rev{47.47}
+    & --- & 14 harm categories \\
+BeaverTails
+    & Llama Guard 4 (12B)
+    & \rev{1000} & \rev{\textbf{77.78}} & \rev{62.22} & \rev{69.14} & \rev{\textbf{25.06}}
+    & --- & --- \\
+deepset/prompt-inj.
+    & \textbf{Semantic Firewall}
+    & \rev{662} & \rev{\textbf{92.55}} & \rev{66.16} & \rev{\textbf{77.16}} & \rev{\textbf{3.51}}
+    & --- & \rev{---} \\
+deepset/prompt-inj.
+    & \rev{Rebuff (reference)}
+    & \rev{662} & \rev{63.30} & \textbf{\rev{75.60}} & \rev{68.90} & \rev{28.80}
+    & --- & \rev{Published in~\cite{palit2025}} \\
+\midrule
+\multicolumn{9}{@{}l}{\textit{(c) Specialized Evaluations}} \\
+\midrule
+ai4privacy/pii-200k
+    & Semantic Firewall (Regex Layer)
+    & 209K & \rev{95.50} & \rev{94.20} & \rev{94.85} & ---
+    & \rev{$<$1\,ms} & Zero LLM cost \\
+\rev{SafeMTData + no\_robots}
+    & Semantic Firewall (Full)
+    & 200 & \rev{93.68} & \rev{89.00} & \rev{91.28} & \rev{6.00}
+    & --- & Session \rev{level} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Baseline, cross-dataset, and specialized evaluations. Best results are \textbf{bolded}; ``---'' denotes non-applicable metrics. \protect\rev{Latency is the mean per request; ours was measured sequentially with the LLM Gate served by Groq via OpenRouter, the proprietary models through OpenRouter's default hosts, and the classifiers on CPU (Prompt Guard~2 through the Groq API, timed separately without rate-limit waits).}}
+\vspace{-7mm}
+\label{tab:baselines}
+\end{table}
+
+\subsection{Evaluation}
+\label{sec:analysis}
+\subsubsection{Baseline Comparison (Table~\ref{tab:baselines}a)}
+Semantic Firewall achieves the highest F1 score among the evaluated
+systems (\rev{95.81\%}), compared with GPT-4o (\rev{88.58\%}), \rev{Claude Haiku~4.5
+(81.76\%)}, and Gemini~2.5 Flash (\rev{88.25\%}). Although GPT-4o achieves
+higher precision (\rev{96.98\%}), Semantic Firewall provides substantially
+higher recall (\rev{97.46\%} versus \rev{81.52\%}), indicating more consistent
+detection of attack prompts\rev{, at a higher FPR (8.46\% versus 3.59\%)}. This improvement is largely due to the
+layered architecture, where deterministic and semantic checks identify
+structural attacks before model-based evaluation. The difference is
+statistically significant under McNemar's test ~\cite{McNemar}
+(\rev{$\chi^2=38.9$, $p<10^{-8}$; the gains over every baseline remain significant after Holm--Bonferroni correction}). \rev{The strongest purpose-built classifier, DeBERTa-v3, reaches 91.73\% F1 at a 2.82\% FPR, while Prompt Guard~2 is precise (95.28\%) but detects only 54.89\% of the attacks.} \rev{The higher recall comes at the cost of precision and FPR: the most severe action of all stages is applied, so false positives of individual stages add up, and the LLM Gate raises the FPR from 4.87\% (C7) to 8.46\% on ambiguous benign prompts; a stricter cache threshold trades some recall for fewer false positives ($\tau=0.80$: 6.67\% FPR at 94.62\% F1). Single small classifiers such as Prompt Guard~2 (166\,ms median) are also faster than the full pipeline (279\,ms median), whose prompts that reach the 70B gate take 438\,ms at the median, while the pipeline remains 3--6 times faster than the proprietary LLMs (median 851--1767\,ms).} In addition, \rev{on this attack-heavy split} \rev{50.1\%} of requests are
+resolved \rev{without invoking the LLM}, reducing effective latency
+to \rev{308\,ms (Eq.~\eqref{eq:effective_latency}); measured end-to-end latency is 279\,ms at the median, 756\,ms at p95 and 1047\,ms at p99; Table~\ref{tab:prevalence} gives the values at realistic attack rates}.
+
+
+\subsubsection{Cross-Dataset Evaluation (Table~\ref{tab:baselines}b)}
+\rev{In the cross-dataset evaluation, the system is applied, with the thresholds selected on neuralchemy, unchanged to datasets that were not used for tuning, to test whether it works beyond the distribution it was tuned on. The deepset dataset is another prompt-injection benchmark; BeaverTails (harmful requests) and AI4Privacy (personal data) are related tasks, which exercise the Unsafe Content and PII detectors of the mesh rather than injection detection.} Semantic Firewall maintains competitive performance \rev{on related, unseen
+tasks}. On BeaverTails, which includes 14 harm categories and
+ambiguous safety cases, it achieves an F1 score of \rev{72.95\%}, compared
+with \rev{69.14\%} for Llama Guard~4. The lower Precision (\rev{69.50\%}) reflects
+the conservative behavior of the detection pipeline on borderline
+prompts, while the high Recall (\rev{76.75\%}) indicates that most harmful
+inputs are still detected. \rev{BeaverTails labels a question together with a model's answer, so harmful-sounding questions labelled safe raise the FPR of any prompt-level filter (47.47\% here, 25.06\% for Llama Guard~4).} On the deepset prompt-injection benchmark,
+Semantic Firewall achieves an F1 score of \rev{77.16\%}\rev{; for reference,
+an independent evaluation reported an F1 score of 68.90\% for Rebuff on
+this dataset~\cite{palit2025}}. \rev{The system holds up across datasets because most of its stages (regex, detectors and the LLM Gate) are not trained on neuralchemy; the cache, the only part built from neuralchemy, helps little on unseen data (10.4\% hit rate on OOD-500), so detection rests on the general-purpose stages.}
+
+
+\subsubsection{Specialized Evaluations (Table~\ref{tab:baselines}c)}
+The PII detection layer achieves \rev{94.85\%} F1 and \rev{94.20\%} Recall across
+209K samples \rev{(91.32\% F1 without the dataset-adapted account-number and SSN patterns)}, with \rev{sub-1\,ms} processing latency and no neural model
+inference. Structured identifiers, including email addresses, credit
+cards, and International Bank Account Numbers (IBANs), achieve over \rev{99.6\%} Recall, while more variable
+patterns such as \rev{dates of birth and card verification codes} remain harder to detect (\rev{66.3\% and 45.7\%}
+recall). In multi-turn scenarios, Semantic Firewall intercepts \rev{89.0\%}
+of adversarial sessions\rev{, at a 6.0\% FPR on benign conversations, on average at turn 2.3. Without its memory of known multi-turn attacks, the Session Judge detects 50.0\% of the attack sessions (FPR 4.0\%); with it, 89.0\% (McNemar $p<10^{-7}$)}. Evaluation of benign prompts on no\_robots ~\cite{norobots} results in a
+\rev{2.80\% block rate; a further 7.4\% are forwarded with personal data masked or flagged by the PII detector,} indicating limited degradation on non-adversarial inputs.
+
+% ── TABLE 3: Cache Threshold Sensitivity ──
+\begin{table}[h!]
+\centering
+\scriptsize
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textit{(a) Full System (C8) on neuralchemy \rev{validation split} ($N{=}\revm{941}$)}} \\
+\midrule
+\textbf{Threshold ($\tau$)}
+    & \textbf{Prec.} & \textbf{Recall}
+    & \textbf{F1} & \textbf{FPR} & \rev{\textbf{Cache hit}} \\
+\midrule
+\rev{No cache} & \rev{95.63} & \rev{90.07} & \rev{92.77} & \rev{5.41\%} & \rev{0.0\%} \\
+\rev{$\tau = 0.55$} & \rev{91.26} & \rev{97.75} & \rev{94.39} & \rev{12.29\%} & \rev{56.0\%} \\
+\rev{$\tau = 0.60$} & \rev{92.83} & \rev{97.00} & \rev{94.87} & \rev{9.83\%} & \rev{51.5\%} \\
+\revm{\boldsymbol{\tau = 0.65}} \textbf{(Sel.)} & \rev{93.94} & \rev{95.88} & \rev{\textbf{94.90}} & \rev{8.11\%} & \rev{45.6\%} \\
+\rev{$\tau = 0.70$} & \rev{94.59} & \rev{94.94} & \rev{94.77} & \rev{7.13\%} & \rev{39.6\%} \\
+\rev{$\tau = 0.80$} & \rev{95.17} & \rev{92.32} & \rev{93.73} & \rev{6.14\%} & \rev{24.1\%} \\
+\rev{$\tau = 0.90$} & \rev{95.65} & \rev{90.64} & \rev{93.08} & \rev{5.41\%} & \rev{12.8\%} \\
+\midrule
+\multicolumn{6}{@{}l}{\textit{(b) Out-Of-Distribution (OOD) Generalization \rev{(OOD-500)}}} \\
+\midrule
+\textbf{Threshold ($\tau$)} & \rev{\textbf{Prec.}} & \rev{\textbf{Recall}} & \rev{\textbf{F1}} & \rev{\textbf{FPR}} & \rev{\textbf{Cache hit}} \\
+\midrule
+\rev{No cache} & \rev{97.77} & \rev{87.60} & \rev{92.41} & \rev{2.00\%} & \rev{0.0\%} \\
+\rev{$\tau = 0.55$} & \rev{94.85} & \rev{88.40} & \rev{91.51} & \rev{4.80\%} & \rev{27.4\%} \\
+\rev{$\tau = 0.60$} & \rev{96.92} & \rev{88.00} & \rev{92.24} & \rev{2.80\%} & \rev{16.6\%} \\
+\revm{\boldsymbol{\tau = 0.65}} & \rev{97.35} & \rev{88.00} & \rev{\textbf{92.44}} & \rev{2.40\%} & \rev{10.4\%} \\
+\rev{$\tau = 0.70$} & \rev{97.77} & \rev{87.60} & \rev{92.41} & \rev{2.00\%} & \rev{5.6\%} \\
+\rev{$\tau = 0.80$} & \rev{97.77} & \rev{87.60} & \rev{92.41} & \rev{2.00\%} & \rev{0.4\%} \\
+\rev{$\tau = 0.90$} & \rev{97.77} & \rev{87.60} & \rev{92.41} & \rev{2.00\%} & \rev{0.0\%} \\
+\bottomrule
+\end{tabular}
+\caption{Cache Threshold Sensitivity (Across $\tau$ sweeps)}
+\label{tab:cache}
+\vspace{-12mm}
+\end{table}
+
+\subsection{Cache Threshold experiments (Table~\ref{tab:cache})}
+The semantic-cache threshold $\tau$
+controls how readily a prompt is blocked based on its similarity to a previously confirmed threat (Eq.~\eqref{eq:cosine}): lower values catch more paraphrased attack variants but risk misclassifying benign prompts, while higher values are more conservative but let more variants fall through to the slower detector mesh. Table~\ref{tab:cache}a sweeps $\tau$
+from \rev{0.55 to 0.90} on the full system (C8) over the neuralchemy \rev{validation split, with the cache seeded only with training-split attacks and frozen during evaluation,} and exposes a clear trade-off governed by this single parameter: \rev{$\tau$=0.55} maximizes the cache hit rate but is too permissive, inflating the false-positive rate to \rev{12.29\%}, while
+\rev{$\tau$=0.90} \rev{matches so few prompts} that most prompts bypass the cache, eroding its latency benefit. F1 peaks at
+\rev{$\tau$=0.65}, which we adopt as the operating threshold: it reaches the highest F1 \rev{of any setting tested} (\rev{94.90\%}), \rev{with a recall of 95.88\%}, at a \rev{45.6\%} cache hit rate and \rev{8.11\%} FPR. \rev{The ensemble threshold $\theta$ was swept jointly (2.0--6.0) and did not change F1, so the default $\theta=3.5$ is kept.}
+
+Table~\ref{tab:cache}b repeats this sweep on \rev{OOD-500, 500 prompts (250 attacks, 250 benign) that we curated from five public datasets not used to build neuralchemy and that we release with the code,} to test whether a threshold tuned on neuralchemy transfers to unseen data. \rev{F1 on this set also peaks at $\tau$=0.65 (92.44\%). Few OOD prompts resemble the cached training attacks (10.4\% hit rate), so here detection rests on the later stages and the cache neither helps nor hurts noticeably; for $\tau\geq0.70$ every cache hit is an attack that the later stages already block, so these rows equal the no-cache row. On the 495 neuralchemy test prompts whose nearest training attack lies below $\tau$, where the cache cannot block them, the full system reaches 88.3\% F1, compared with 84.8\% for GPT-4o and 82.0\% for DeBERTa-v3, so the gains in Table~\ref{tab:baselines}a do not rest only on near-duplicates of training attacks.}
+
+
+\subsection{\texorpdfstring{\protect\rev{Cache Write-back and Poisoning Resistance}}{Cache Write-back and Poisoning Resistance}}\label{sec:cache-eval}
+\rev{We measure how gate false positives propagate through the cache, and what the safeguards of Section~\ref{sec:security} cost, on normal traffic without an attacker. A prompt that misses the cache follows the same path as without a cache (Eq.~\eqref{eq:warm}), so a run with write-back can be replayed exactly from one run of the full system without a cache: a prompt that matches an entry is blocked, and any other prompt receives its recorded verdict and is written to the cache if that verdict meets the write-back rule. The replay uses the cache implementation itself. Its recorded verdicts agree with the no-cache run behind Table~\ref{tab:baselines} on 99.3\% of the test prompts, and from an empty cache in the dataset order it reproduces C9: the same 151 cache hits, 696 LLM calls and recall, with one more false positive. The test split is streamed in its dataset order and in four random orders, from the warm cache and from an empty one, and the cache reached at the end of each stream is then frozen and applied to the validation split. The benign reference set is drawn from the 1{,}741 benign training prompts, and a probationary entry is promoted after two independent detections (Table~\ref{tab:safeguards}).}
+
+\rev{Of the 942 test prompts, 14 benign ones receive a verdict that meets the write-back rule. In no stream did such a wrongly written entry block a benign prompt: none of them lies within $\tau$ of a benign validation prompt (the closest is at 0.58), and none of the 8 such validation prompts lies within $\tau$ of a benign test prompt, whereas a randomly chosen benign prompt, if cached, would block 0.60\% of the unseen benign prompts. The false positives that write-back adds (1.4 test prompts per stream and one validation prompt) come instead from correctly cached attacks whose neighborhood contains a benign prompt. Write-back itself matters mainly from an empty cache, where it raises recall from 91.12\% to 92.64\% and saves 14.7\% of the LLM calls; from the warm cache it leaves recall unchanged and saves 0.9\%.}
+
+\rev{The safeguards cost little on this traffic. The benign-overlap check changes no decision: it rejects 1, 2 and 5.6 of about 200 correct entries with 100, 500 and 1{,}741 reference prompts, and none of the gate false positives, which lie far from all benign prompts. The probationary tier costs 3.2--5.3\% more LLM calls and up to 0.28 points of recall from an empty cache; the cache still matches 63--77\% of the attacks that resemble a learned one, and 97--98\% of them are blocked by the later stages or the cache. The time-to-live costs 1.6--8.2\% more LLM calls and removes 50--88\% of the learned entries by the end of the stream, which lowers held-out recall from 91.91\% to 90.94--91.20\%. Re-validation costs 0.1--1.7\% more LLM calls, but evicts a correct entry whenever the pipeline misses a re-validated attack (0.8 and 1.2 entries per stream at 5\% and 10\%). No gate false positive was ever promoted. All four together cost 6.9\% more LLM calls and 0.47 points of recall from an empty cache, and 0.6\% more LLM calls from the warm cache, while lowering the FPR from 6.00\% to 5.74\% and from 9.08\% to 8.82\%, respectively.} \rev{The safeguards target deliberate poisoning, which places entries next to benign traffic; measuring how much they reduce it, in terms of poison write rate, false positives after a poisoning campaign, amplification per poisoned entry, recovery time and time to eviction, is left to future work.}
+
+\begin{table}[t]
+\centering
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lccccc|ccccc@{}}
+\toprule
+& \multicolumn{5}{c|}{\rev{\textbf{Warm start}}} & \multicolumn{5}{c}{\rev{\textbf{Cold start}}} \\
+\rev{\textbf{Configuration}} & \rev{\textbf{Rec.}} & \rev{\textbf{FPR}} & \rev{\textbf{Hit}} & \rev{\textbf{LLM/1k}} & \rev{\textbf{Val.~FPR}} & \rev{\textbf{Rec.}} & \rev{\textbf{FPR}} & \rev{\textbf{Hit}} & \rev{\textbf{LLM/1k}} & \rev{\textbf{Val.~FPR}} \\
+\midrule
+\rev{No write-back} & \rev{97.10} & \rev{8.72} & \rev{47.5} & \rev{498.9} & \rev{8.11} & \rev{91.12} & \rev{5.64} & \rev{0.0} & \rev{872.6} & \rev{5.41} \\
+\rev{Write-back only} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.64} & \rev{6.00} & \rev{15.4} & \rev{744.4} & \rev{5.65} \\
+\midrule
+\rev{Overlap check, 100 ref.} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.64} & \rev{6.00} & \rev{15.4} & \rev{744.4} & \rev{5.65} \\
+\rev{Overlap check, 500 ref.} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.64} & \rev{6.00} & \rev{15.4} & \rev{744.4} & \rev{5.65} \\
+\rev{Overlap check, 1{,}741 ref.} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.64} & \rev{6.00} & \rev{15.3} & \rev{745.0} & \rev{5.65} \\
+\midrule
+\rev{Probation, $\tau'=0.68$} & \rev{97.10} & \rev{8.87} & \rev{47.8} & \rev{495.1} & \rev{8.35} & \rev{92.46} & \rev{5.79} & \rev{12.9} & \rev{768.2} & \rev{5.65} \\
+\rev{Probation, $\tau'=0.70$} & \rev{97.10} & \rev{8.87} & \rev{47.8} & \rev{495.1} & \rev{8.35} & \rev{92.36} & \rev{5.79} & \rev{12.2} & \rev{774.1} & \rev{5.65} \\
+\rev{Probation, $\tau'=0.75$} & \rev{97.10} & \rev{8.87} & \rev{47.8} & \rev{495.1} & \rev{8.35} & \rev{92.36} & \rev{5.79} & \rev{10.8} & \rev{783.9} & \rev{5.65} \\
+\midrule
+\rev{TTL, 100 requests} & \rev{97.10} & \rev{8.87} & \rev{47.6} & \rev{497.5} & \rev{8.11} & \rev{92.25} & \rev{5.79} & \rev{8.0} & \rev{805.1} & \rev{5.41} \\
+\rev{TTL, 250 requests} & \rev{97.10} & \rev{8.97} & \rev{47.7} & \rev{496.6} & \rev{8.16} & \rev{92.36} & \rev{5.90} & \rev{11.4} & \rev{776.9} & \rev{5.45} \\
+\rev{TTL, 500 requests} & \rev{97.10} & \rev{9.08} & \rev{47.8} & \rev{495.1} & \rev{8.21} & \rev{92.46} & \rev{6.00} & \rev{14.0} & \rev{756.5} & \rev{5.50} \\
+\midrule
+\rev{Re-validation, 1\%} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.64} & \rev{6.00} & \rev{15.3} & \rev{745.2} & \rev{5.65} \\
+\rev{Re-validation, 5\%} & \rev{97.10} & \rev{9.08} & \rev{47.9} & \rev{494.3} & \rev{8.35} & \rev{92.54} & \rev{6.00} & \rev{14.4} & \rev{752.9} & \rev{5.65} \\
+\rev{Re-validation, 10\%} & \rev{97.10} & \rev{9.03} & \rev{47.9} & \rev{494.9} & \rev{8.35} & \rev{92.57} & \rev{5.95} & \rev{13.8} & \rev{757.3} & \rev{5.65} \\
+\midrule
+\rev{All four} & \rev{97.10} & \rev{8.82} & \rev{47.6} & \rev{497.2} & \rev{8.16} & \rev{92.17} & \rev{5.74} & \rev{9.3} & \rev{795.8} & \rev{5.45} \\
+\bottomrule
+\end{tabular}%
+}
+\caption{\protect\rev{Cost of the cache safeguards on normal traffic (no attacker): the neuralchemy test split streamed with write-back, from the warm cache and from an empty one (means over five stream orders, in \%; LLM/1k: LLM calls per 1{,}000 prompts). Val.~FPR: validation split, with the cache reached at the end of the stream frozen. No write-back: frozen warm cache, or no cache. All four: 1{,}741 reference prompts, $\tau'=0.70$, a TTL of 250 requests and 5\% re-validation.}}
+\label{tab:safeguards}
+\vspace{-7mm}
+\end{table}
+\subsection{Ablation Study (Table~\ref{tab:ablation})}
+\rev{The configurations in Table~\ref{tab:ablation} are: C1, the Injection Detector's LLM agent alone on every prompt; C1b, both LLM-assisted detectors in parallel on every prompt, with no deterministic stage; C2, the regex pre-screens and threat-intelligence signatures; C3, the warm semantic cache alone; C4, the deterministic detectors without regex pre-screens; C5, regex and cache; C6, regex and deterministic detectors; C7, all fast layers without the LLM; C8, the full system with the warm cache; and C9, the full system with an initially empty cache that learns during the run.} The ablation results show \rev{that the components are complementary: no single component approaches the full system}. \rev{The standalone LLM Gate (C1) reaches an F1 score of 91.43\%, whereas the regex engine alone (C2) reaches 22.08\% at a 1.03\% FPR; most neuralchemy attacks carry no fixed lexical signature.} The main gains come from combining complementary components.
+Regex and semantic caching (C5) \rev{raise F1 to 87.82\%}, \rev{and adding the parallel detectors (C7) raises it to 88.59\% without any LLM call}. The full pipeline
+(C8) achieves the highest F1 and Recall, improving F1 by \rev{4.38} points
+over C1; this difference is statistically significant
+(McNemar's \rev{$\chi^2=22.3$, $p<10^{-5}$}).\\
+% ── TABLE 2: Ablation Study ──
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lrccccc@{}}
+\toprule
+\textbf{Configuration}
+    & \textbf{$N$} & \textbf{Prec.} & \textbf{Recall}
+    & \textbf{F1} & \rev{\textbf{FPR}} & \textbf{Latency} \\
+\midrule
+C1: LLM Gate Only
+    & \rev{942} & \rev{96.39} & \rev{86.96} & \rev{91.43} & \rev{4.62} & \rev{406\,ms} \\
+\rev{C1b: Par.~LLM Agents}
+    & \rev{942} & \rev{95.75} & \rev{89.86} & \rev{92.71} & \rev{5.64} & \rev{---} \\
+C2: Regex Only
+    & \rev{942} & \rev{94.52} & \rev{12.50} & \rev{22.08} & \rev{1.03} & \rev{10.3\,ms} \\
+C3: Cache Only
+    & \rev{942} & \rev{95.97} & \rev{77.72} & \rev{85.89} & \rev{4.62} & \rev{70.1\,ms} \\
+C4: Par.\ Det.\ Only
+    & \rev{942} & \rev{\textbf{100.00}} & \rev{20.47} & \rev{33.98} & \rev{\textbf{0.00}} & \rev{14.5\,ms} \\
+C5: Regex + Cache
+    & \rev{942} & \rev{95.92} & \rev{80.98} & \rev{87.82} & \rev{4.87} & \rev{80.2\,ms} \\
+C6: Regex + Par.\ Det.
+    & \rev{942} & \rev{97.58} & \rev{29.17} & \rev{44.91} & \rev{1.03} & \rev{16.8\,ms} \\
+C7: All Fast (No LLM)
+    & \rev{942} & \rev{95.98} & \rev{82.25} & \rev{88.59} & \rev{4.87} & \rev{142\,ms} \\
+\textbf{C8: Full (Warm)}
+    & \rev{942} & \rev{94.22} & \rev{\textbf{97.46}} & \rev{\textbf{95.81}} & \rev{8.46} & \rev{304\,ms} \\
+C9: Full (Cold)
+    & \rev{942} & \rev{95.71} & \rev{92.93} & \rev{94.30} & \rev{5.90} & \rev{---} \\
+\bottomrule
+\end{tabular}
+\caption{Ablation study of Semantic Firewall components on the neuralchemy \protect\rev{test split} ($N=\protect\revm{942}$). \protect\rev{Latency is the mean over 200 test prompts processed one at a time (LLM served by Groq); ``---'': not measured in this setting.}}
+\label{tab:ablation}
+\vspace{-7mm}
+\end{table}
+Adding the LLM Gate improves
+recall from approximately \rev{82\% to 97\%}, although Precision decreases
+because of false positives on ambiguous prompts\rev{ (FPR 4.87\% to 8.46\%)}. This reflects a
+security-oriented trade-off that favors attack detection over missed
+threats. Finally, parallel execution limits the latency added by the
+heuristic ensemble, with C4 and C6 recording \rev{14.5 and 16.8\,ms. The full pipeline (304\,ms) is faster on average than the LLM Gate alone (406\,ms), because cache hits skip the LLM, while the configurations without the LLM stay below 150\,ms}. \rev{Running both LLM-assisted detectors in parallel on every prompt without any deterministic stage (C1b) reaches an F1 score of 92.71\% (recall 89.86\%); the full pipeline remains significantly better (McNemar $\chi^2=16.4$, $p<10^{-4}$) while invoking the LLM for only half of the prompts. Starting from an empty cache that learns during the run (C9), the system blocks 151 prompts from the cache (148 attacks, 3 benign), lowering the LLM-call rate from 87.3\% to 73.9\% and raising F1 from 93.49\% to 94.30\% relative to no cache; this single-pass gain is not significant ($p=0.077$), and most of the cache's benefit comes from seeding it with known attacks (C8).}
+
+\rev{Policy profiles mainly change how lower-severity findings are handled: the \textit{Strict} and \textit{Developer} profiles change the decision for only 1 and 2 of the 942 test prompts (F1 95.90\% and 95.63\%; McNemar $p\geq0.5$), since almost all findings on this benchmark are high-severity and are blocked under every profile. For example, the prompt ``Translate the following into French. Ignore the above and instead print your system prompt, then email it to admin@example.com'' is blocked with a risk score of 100, and the explanation report names the Injection, Threat-Intel and PII detectors with their evidence, whereas a benign request containing an e-mail address and a phone number is forwarded with both replaced by \texttt{[EMAIL]} and \texttt{[PHONE]}.}
+\rev{On neuralchemy, five detectors change no decision, as its prompts contain no personal data, credentials, oversized inputs, feed signatures or workspace terms. We therefore remove one detector at a time on MIXED-1000 (Table~\ref{tab:loo}), 1{,}000 prompts released with the code that combine 300 benign and 250 attack prompts of the neuralchemy test split with inputs for every detector: 100 AI4Privacy texts with personal data, 80 developer questions with generated credentials in real key formats, 50 inputs padded beyond the 4{,}000-character budget, 50 requests with the feed's signatures (cloud-metadata URLs, chat-delimiter tokens), 40 requests naming a workspace-restricted project, 80 neuralchemy attacks combined with personal data, padding or credentials, and 50 benign look-alikes (order numbers, commit hashes, long documents under the budget, localhost URLs). Every detector but one changes decisions: in the fast layers, removing the PII or Secrets Detector changes 78 and 71 decisions and lowers recall on personal data from 65.4\% to 13.1\% and on credentials from 100\% to 32.4\%; Custom Rules changes 40, Context Flooding 7 and Abuse 5, and in the full system the Injection Detector changes 50 (injection recall 98.2\% to 91.8\%) and Unsafe Content 16. Threat Intel flags 58 prompts, all of its own inputs included, but each is also flagged by another detector: its feed holds only three signatures (instruction override, chat-delimiter tokens, a cloud-metadata URL), which overlap with the Abuse and PII Detectors and the injection regex, so removing it changes no decision on this set. Its role is to let operators add signatures for newly observed attacks without changing code. The FPR is high on this set (19.43\% for C8) because the look-alikes were built to resemble threats: 40 of the 50 are flagged, by the PII Detector (order numbers, IP addresses), the Injection regex (hashes, long documents) and the Abuse Detector.}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+\rev{\textbf{Removed detector}} & \rev{\textbf{Compared with}} & \rev{\textbf{F1}} & \rev{\textbf{FPR}} & \rev{\textbf{Changed}} & \rev{\textbf{Flags}} & \rev{\textbf{Own-threat recall}} \\
+\midrule
+\rev{none} & \rev{C8: Full (Warm)} & \rev{92.35} & \rev{19.43} & \rev{---} & \rev{---} & \rev{---} \\
+\rev{Injection} & \rev{C8} & \rev{91.43} & \rev{13.43} & \rev{50} & \rev{278 / 32} & \rev{98.2 $\to$ 91.8} \\
+\rev{Unsafe Content} & \rev{C8} & \rev{91.96} & \rev{17.71} & \rev{16} & \rev{111 / 16} & \rev{---} \\
+\midrule
+\rev{none} & \rev{C7: All Fast (No LLM)} & \rev{89.22} & \rev{15.43} & \rev{---} & \rev{---} & \rev{---} \\
+\rev{Abuse} & \rev{C7} & \rev{88.78} & \rev{15.43} & \rev{5} & \rev{154 / 10} & \rev{---} \\
+\rev{PII} & \rev{C7} & \rev{83.65} & \rev{12.57} & \rev{78} & \rev{155 / 20} & \rev{65.4 $\to$ 13.1} \\
+\rev{Secrets} & \rev{C7} & \rev{82.67} & \rev{15.43} & \rev{71} & \rev{105 / 0} & \rev{100.0 $\to$ 32.4} \\
+\rev{Threat Intel} & \rev{C7} & \rev{89.22} & \rev{15.43} & \rev{0} & \rev{58 / 0} & \rev{100.0 $\to$ 100.0} \\
+\rev{Custom Rules} & \rev{C7} & \rev{85.62} & \rev{15.43} & \rev{40} & \rev{40 / 0} & \rev{100.0 $\to$ 0.0} \\
+\rev{Context Flooding} & \rev{C7} & \rev{88.61} & \rev{15.43} & \rev{7} & \rev{76 / 0} & \rev{100.0 $\to$ 90.7} \\
+\bottomrule
+\end{tabular}
+\caption{\protect\rev{Per-detector ablation on MIXED-1000 ($N=1{,}000$; 650 prompts with threats, 350 benign): each detector is removed in turn, the LLM-assisted ones from the full system (C8) and the deterministic ones from the fast layers (C7), both with the warm cache; the LLM verdicts of the full run are reused in the ablation runs (temperature 0). Changed: decisions that change when the detector is removed. Flags: prompts the detector flags in the reference run (with threats / benign). Own-threat recall: recall on the threat type the detector targets, with and without it.}}
+\label{tab:loo}
+\vspace{-7mm}
+\end{table}
+
+\subsubsection{Cost}
+On our evaluation distribution, fast layers resolved \rev{50.1\%} of all
+incoming requests without LLM invocation; this ratio will vary with
+deployment-specific traffic composition. \rev{We call the share of attacks among incoming requests the \emph{attack rate}; it is 59\% on the test split (552 of 942 prompts).} \rev{Because cache hits are attacks and benign prompts almost always reach the LLM Gate, the saving grows with the share of attack traffic: on the benign no\_robots prompts, 98.0\% of requests invoke the LLM. Re-weighting the test split to attack rates of 1--10\% (Table~\ref{tab:prevalence}) gives an LLM-call rate of 94.4--87.4\% and an effective latency of 495--466\,ms (p95 944\,ms, p99 1242\,ms).} Applying (\ref{eq:effective_latency}) to the \rev{test} split (\rev{$P_c{=}447/942$, $P_h{+}P_m{=}25/942$, $P_l{=}470/942$, with measured mean path latencies of 85.6, 332.1 and 519.1\,ms}) results in an effective system latency of \rev{$L_{\text{eff}} \approx 308$\,ms}. \rev{Economically, each invocation of the LLM stage issues two requests (one per LLM-assisted detector) to an open-weight 70B model, so the cost advantage over a proprietary LLM-only gate comes mainly from the lower per-token price of the open model and grows with the share of attack traffic resolved earlier.}
+
+
+% -- TABLE: cost/latency at realistic attack rates (R1.3c) --
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\rev{\textbf{Attack rate}} & \rev{\textbf{Resolved w/o LLM}} & \rev{\textbf{LLM-call rate}} & \rev{\textbf{$L_{\mathrm{eff}}$}} & \rev{\textbf{p95}} & \rev{\textbf{p99}} \\
+\midrule
+\rev{1\%} & \rev{5.6\%} & \rev{94.4\%} & \rev{495\,ms} & \rev{944\,ms} & \rev{1242\,ms} \\
+\rev{5\%} & \rev{8.7\%} & \rev{91.3\%} & \rev{482\,ms} & \rev{944\,ms} & \rev{1242\,ms} \\
+\rev{10\%} & \rev{12.6\%} & \rev{87.4\%} & \rev{466\,ms} & \rev{944\,ms} & \rev{1242\,ms} \\
+\rev{59\% (test split)} & \rev{50.1\%} & \rev{49.9\%} & \rev{308\,ms} & \rev{756\,ms} & \rev{1047\,ms} \\
+\bottomrule
+\end{tabular}
+\caption{\protect\rev{Share of requests resolved without the LLM, LLM-call rate (which determines the API cost), and latency of the full system as a function of the attack rate, that is, the share of attacks among incoming requests. The test-split row is measured; the other rows re-weight the per-class results of the test split (latency measured one request at a time, LLM served by Groq).}}
+\label{tab:prevalence}
+\vspace{-7mm}
+\end{table}
+
+% ====================================================================
+% VI. LIMITATIONS & FUTURE WORK
+% ====================================================================
+\section{Limitations \& Future Work}\label{sec:limitation_future}
+A few limitations point to future work. The 70B LLM Gate is resource-heavy; a distilled 8B model could cut cost and latency. The cache can still miss attacks worded very differently from anything seen before, which adversarially trained embeddings could help catch. The Python orchestrator \rev{processes about three requests per second per sequential worker (304\,ms on average, most of it spent waiting for the LLM)}; a production version would need a faster language such as Go or Rust and a distributed vector store. \rev{Unresolved prompts are sent to a third-party LLM API, which exposes their content to that provider; because the gate is an open-weight model, privacy-sensitive deployments can host it locally.} The \rev{8.46\%} false-positive rate may be too strict for cost-sensitive deployments, though Table~\ref{tab:cache} shows \rev{higher-threshold} settings trade some accuracy for fewer false positives\rev{ (on the test split, $\tau=0.80$ gives 6.67\% FPR at 94.62\% F1)}. \rev{Future work will also select the detector weights and thresholds automatically, by optimising them on a validation split instead of setting them by hand.} Future work will also explore multimodal inputs\rev{. The evaluation covers static attack datasets, keywords obfuscated with typos, out-of-distribution and multi-turn attacks, prompts unlike any cached attack and a black-box allowlist test, but not adaptive attackers who know the system in advance (Section~\ref{sec:threat-model}); future work will evaluate attacks optimized against the detectors and the open-weight gate, injections addressed to the gate itself, near-allowlist inputs crafted with knowledge of the pipeline, and deliberate poisoning campaigns against the poisoning-resistant cache design}.
+
+\section{Conclusion}\label{sec:conclusion}
+This paper presented Semantic Firewall, a layered, multi-agent defense-in-depth framework for securing LLM applications against prompt-injection and jailbreak attacks. By combining lightweight deterministic checks, an adaptive semantic memory, a parallel ensemble of eight specialized detectors, and a constrained LLM gate, Semantic Firewall achieves a \rev{95.81\%} F1 score and \rev{97.46\%} recall on the neuralchemy \rev{test split}, outperforming GPT-4o, Gemini 2.5 Flash, and \rev{Claude Haiku 4.5}. It resolves \rev{50.1\%} of \rev{test} traffic without any LLM inference\rev{; this share shrinks when attacks are a smaller share of the traffic}. \rev{Results on another prompt-injection benchmark (deepset), on related tasks (BeaverTails, AI4Privacy) and on an unseen out-of-distribution set (F1 of 92.44\%) indicate that the approach carries beyond its primary evaluation setting.} These results demonstrate that combining detection mechanisms with complementary failure modes and adaptive semantic memory offers a practical and scalable blueprint for securing production LLM-based applications against an evolving threat landscape.
+
+\section*{Generative AI Usage Declaration}
+The authors used a large language model only to assist with manuscript preparation, including language editing and rephrasing for clarity, tone, and formality. All AI-assisted text was reviewed, verified, and edited by the authors, who take full responsibility for the accuracy, originality, and integrity of the manuscript.
+
+\begin{thebibliography}{00}
+\bibitem{surveyprompt}
+Chen, J., et al.: A survey on prompt injection attacks in large language models. IEEE Trans. Inf. Forensics Secur. (2024)
+
+\bibitem{owasptop10}
+OWASP: OWASP top 10 for large language model applications. OWASP Foundation (2023)
+
+\bibitem{greshake2023indirect}
+Greshake, K., et al.: Not what you've signed up for: compromising real-world LLM-integrated applications with indirect prompt injection. In: Proc. AISec (2023)
+
+\bibitem{autodan}
+Liu, X., et al.: AutoDAN: generating stealthy jailbreak prompts on aligned large language models. arXiv preprint arXiv:2310.04451 (2023)
+
+\bibitem{pair}
+Chao, P., et al.: Jailbreaking black box large language models in twenty queries. arXiv preprint arXiv:2310.08419 (2023)
+
+\bibitem{wei2023jailbroken}
+Wei, A., Haghtalab, N., Steinhardt, J.: Jailbroken: how does LLM safety training fail? In: Advances in Neural Information Processing Systems (NeurIPS) (2023)
+
+\bibitem{zou2023universal}
+Zou, A., et al.: Universal and transferable adversarial attacks on aligned language models. arXiv preprint arXiv:2307.15043 (2023)
+
+\bibitem{llamaguard}
+Inan, M., et al.: Llama guard: LLM-based input-output safeguard for human-AI conversations. arXiv preprint arXiv:2312.06674 (2023)
+
+\bibitem{guardrailsai}
+Guardrails AI: Guardrails: validating and correcting the outputs of large language models. GitHub (2023)
+
+\bibitem{promptguard}
+Meta: PromptGuard: a safeguard model against prompt injections and jailbreaks (2024)
+
+\bibitem{protectaideberta}
+\rev{ProtectAI: Fine-tuned DeBERTa-v3-base for prompt injection detection (v2). HuggingFace (2024),} \url{https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2}
+
+\bibitem{injecguard}
+Li, H., Liu, X.: InjecGuard: benchmarking and mitigating over-defense in prompt injection guardrail models. arXiv preprint arXiv:2410.22770 (2024)
+
+\bibitem{capture}
+Kholkar, G., Ahuja, R.: CAPTURE: context-aware prompt injection testing and robustness enhancement. arXiv preprint arXiv:2505.12368 (2025)
+
+\bibitem{maiorano2026tradeoffs}
+Maiorano, A.C.: Evaluating prompt injection defenses for educational LLM tutors: security-usability-latency trade-offs. arXiv preprint arXiv:2605.06669 (2026)
+
+\bibitem{rebuff}
+ProtectAI: Rebuff: prompt injection defense. GitHub (2023)
+
+\bibitem{palit2025}
+Palit, S., Woods, D.: Evaluating the efficacy of LLM safety solutions: the Palit benchmark dataset. arXiv preprint arXiv:2505.13028 (2025)
+
+\bibitem{wallace2024hierarchy}
+\rev{Wallace, E., Xiao, K., Leike, R., Weng, L., Heidecke, J., Beutel, A.: The instruction hierarchy: training LLMs to prioritize privileged instructions. arXiv preprint arXiv:2404.13208 (2024)}
+
+\bibitem{chen2025struq}
+\rev{Chen, S., Piet, J., Sitawarin, C., Wagner, D.: StruQ: defending against prompt injection with structured queries. In: Proc. USENIX Security Symposium (2025)}
+
+\bibitem{chen2024secalign}
+\rev{Chen, S., Zharmagambetov, A., Mahloujifar, S., Chaudhuri, K., Wagner, D., Guo, C.: SecAlign: defending against prompt injection with preference optimization. arXiv preprint arXiv:2410.05451 (2024)}
+
+\bibitem{debenedetti2025camel}
+\rev{Debenedetti, E., Shumailov, I., Fan, T., Hayes, J., Carlini, N., Fabian, D., Kern, C., Shi, C., Terzis, A., Tram\`{e}r, F.: Defeating prompt injections by design. arXiv preprint arXiv:2503.18813 (2025)}
+
+\bibitem{nemoguardrails}
+Rebedea, T., et al.: NeMo guardrails: a toolkit for controllable and safe LLM applications. arXiv preprint arXiv:2310.10501 (2023)
+
+
+\bibitem{saltzer1975protection}
+Saltzer, J., Schroeder, M.: The protection of information in computer systems. Proc. IEEE \textbf{63}(9), 1278--1308 (1975)
+
+\bibitem{promptbench}
+Zhu, K., et al.: PromptBench: towards evaluating the robustness of large language models on adversarial prompts. arXiv preprint arXiv:2308.06588 (2023)
+
+\bibitem{smoothllm}
+Robey, A., et al.: SmoothLLM: defending large language models against jailbreaking attacks. arXiv preprint arXiv:2309.02771 (2023)
+
+\bibitem{russinovich2024crescendo}
+Russinovich, M., Salem, A., Eldan, R.: Great, now write an article about that: the Crescendo multi-turn LLM jailbreak attack. arXiv preprint arXiv:2404.01833 (2024)
+
+\bibitem{reimers2019sbert}
+Reimers, N., Gurevych, I.: Sentence-BERT: sentence embeddings using Siamese BERT-networks. In: Proc. EMNLP-IJCNLP, pp. 3982--3992 (2019)
+
+\bibitem{chromadb}
+Chroma: ChromaDB: the AI-native open-source embedding database. GitHub (2023)
+
+\bibitem{malkov2020hnsw}
+Malkov, Y., Yashunin, D.: Efficient and robust approximate nearest neighbor search using hierarchical navigable small world graphs. IEEE Trans. Pattern Anal. Mach. Intell. \textbf{42}(4), 824--836 (2020)
+
+\bibitem{Shannon}
+Shannon, C.E.: A mathematical theory of communication. Bell Syst. Tech. J. \textbf{27}(3), 379--423 (1948)
+
+\bibitem{Levenshtein_recursive}
+Wagner, R.A., Fischer, M.J.: The string-to-string correction problem. J. ACM \textbf{21}(1), 168--173 (1974)
+
+\bibitem{McNemar}
+McNemar, Q.: Note on the sampling error of the difference between correlated proportions or percentages. Psychometrika \textbf{12}(2), 153--157 (1947)
+
+\bibitem{neuralchemy}
+Neuralchemy: Prompt-injection-dataset. HuggingFace (2023), \url{https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset}
+
+\bibitem{ai4privacy}
+AI4Privacy: pii-masking-200k. HuggingFace (2023), \url{https://huggingface.co/datasets/ai4privacy/pii-masking-200k}
+
+\bibitem{safemtdata}
+\rev{Ren, Q., Li, H., Liu, D., Xie, Z., Lu, X., Qiao, Y., Sha, L., Yan, J., Ma, L., Shao, J.: Derail yourself: Multi-turn LLM jailbreak attack through self-discovered clues. arXiv preprint arXiv:2410.10700 (2024)}
+
+\bibitem{beavertails}
+Ji, J., et al.: BeaverTails: towards improved safety alignment of LLM via a human-preference dataset. In: Advances in Neural Information Processing Systems (NeurIPS) (2023)
+
+\bibitem{deepset}
+deepset: prompt-injections. HuggingFace (2023), \url{https://huggingface.co/datasets/deepset/prompt-injections}
+
+\bibitem{norobots}
+Rajani, N., et al.: No Robots. HuggingFace (2023), \url{https://huggingface.co/datasets/HuggingFaceH4/no_robots}
+
+\bibitem{gpt4o}
+OpenAI: GPT-4o system card. Tech. rep., OpenAI (2024), \url{https://openai.com/index/gpt-4o-system-card/}
+
+\bibitem{claudehaiku45}
+Anthropic: Claude Haiku 4.5. Model announcement, Anthropic (2025)
+
+\bibitem{gemini25}
+Comanici, G., et al.: Gemini 2.5: pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 (2025)
+
+\bibitem{llamaguard4}
+Meta: Llama Guard 4 model card. Meta AI (2025), \url{https://github.com/meta-llama/PurpleLlama/blob/main/Llama-Guard4/12B/MODEL_CARD.md}
+
+
+\end{thebibliography}
+
+\end{document}
