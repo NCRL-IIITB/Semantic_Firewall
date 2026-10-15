@@ -131,4 +131,4 @@ been accepted at ICISS 2026. A BibTeX entry will be added on publication.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[LICENSE](LICENSE).
