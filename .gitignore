@@ -15,3 +15,6 @@ data/var/chroma_db/
 semantic_firewall/benchmarks/research/results_camera_ready/_work/
 .vscode/
 data/var/chroma_conversations/
+
+# Paper sources (kept local, not published)
+ICISS-Springer/
